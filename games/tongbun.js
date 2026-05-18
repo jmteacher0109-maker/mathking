@@ -51,8 +51,11 @@
       cfg = config;
       paths = []; connectedCnt = 0; activeDrags = {};
       _injectStyles();
-      _sizeBoard();
-      _generateBoard();
+      // rAF: 브라우저 레이아웃 완료 후 크기 측정 (0 반환 방지)
+      requestAnimationFrame(() => {
+        _sizeBoard();
+        _generateBoard();
+      });
       window.addEventListener('resize', _onResize);
     },
 
@@ -88,25 +91,30 @@
   function _sizeBoard() {
     if (!cfg?.boardEl) return;
     const wrap = cfg.boardEl.parentElement;
-    const maxW = wrap.clientWidth * 0.95;
-    const maxH = window.innerHeight - 185;
-    const size = Math.max(280, Math.min(720, maxW, maxH));
+
+    // board-wrap 은 flex:1 이므로 헤더/바/푸터를 제외한
+    // 실제 가용 공간이 clientHeight 에 정확히 반영됨
+    const availH = wrap.clientHeight - 20;
+    const availW = wrap.clientWidth  - 20;
+    const size   = Math.max(280, Math.min(availW, availH));
 
     cfg.boardEl.style.width  = size + 'px';
     cfg.boardEl.style.height = size + 'px';
 
     const ds = _dotPx(size);
     cfg.boardEl.style.setProperty('--tb-dot', ds + 'px');
-    cfg.boardEl.style.setProperty('--tb-fs',  Math.min(1.45, ds / 50) + 'rem');
-    cfg.boardEl.style.setProperty('--tb-sw',  Math.max(5, Math.round(ds * 0.11)) + 'px');
-    hitRadius = Math.round(ds * 0.56);
+    cfg.boardEl.style.setProperty('--tb-fs',  Math.min(1.8, ds / 48) + 'rem');
+    cfg.boardEl.style.setProperty('--tb-sw',  Math.max(5, Math.round(ds * 0.12)) + 'px');
+    hitRadius = Math.round(ds * 0.58);
   }
 
   function _dotPx(boardPx) {
-    if (boardPx >= 650) return 76;
-    if (boardPx >= 540) return 68;
-    if (boardPx >= 420) return 60;
-    if (boardPx >= 320) return 52;
+    if (boardPx >= 900) return 96;
+    if (boardPx >= 750) return 88;
+    if (boardPx >= 600) return 80;
+    if (boardPx >= 480) return 70;
+    if (boardPx >= 360) return 60;
+    if (boardPx >= 280) return 50;
     return 44;
   }
 
