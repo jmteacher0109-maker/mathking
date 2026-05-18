@@ -236,7 +236,7 @@
       <div class="gc-tag">분수</div>
     </div>
 
-    <div class="game-card" onclick="pickGame('sandeungban','분수 산 등반 🏔️','games/sandeungban.js')">
+    <div class="game-card" onclick="pickGame('sandeunban','분수 산 등반 🏔️','games/sandeunban.js')">
       <div class="gc-icon">🏔️</div>
       <div class="gc-info">
         <div class="gc-name">분수 산 등반 🏔️</div>
@@ -464,8 +464,9 @@ function pickGame(key, title, src) {
 
   // 게임별 옵션 영역 렌더링
   const optArea = document.getElementById('mode-options');
-  if (key === 'sandeungban') {
-    curGameOptions.level = 1; // 기본값
+  if (key === 'sandeunban') {
+    curGameOptions.level    = 1;
+    curGameOptions.duration = 120;
     optArea.style.display = 'block';
     optArea.innerHTML = `
       <div class="level-select-area">
@@ -487,7 +488,9 @@ function pickGame(key, title, src) {
 }
 
 function setLvl(lv, el) {
-  curGameOptions.level = lv;
+  const DUR = { 1:120, 2:100, 3:90, 4:120 };
+  curGameOptions.level    = lv;
+  curGameOptions.duration = DUR[lv];
   document.querySelectorAll('#mode-options .lvl-btn').forEach(b => b.classList.remove('sel'));
   el.classList.add('sel');
   snd('click');
@@ -589,6 +592,7 @@ async function startSolo() {
     onWrong:      cbWrong,
     onUndo:       cbUndo,
     onBoardStart: cbBoardStart,
+    onComplete:   () => { clearInterval(timerIv); endGame(); }, // 게임 자체 완료 (산등반 정상 도달)
     isActive:     () => timeLeft > 0,
     options:      { ...curGameOptions },
     hideFooter:   () => document.getElementById('game-foot').style.display = 'none',
@@ -596,7 +600,7 @@ async function startSolo() {
   });
 
   // 게임 모듈이 duration 을 지정하면 그걸 사용 (솔로만)
-  const dur = CurrentGame.duration || 60;
+  const dur = curGameOptions.duration || CurrentGame.duration || 60;
   startCountdown(() => startTimer(dur));
 }
 
@@ -805,15 +809,17 @@ async function startMulti(room) {
     onWrong:      cbWrong,
     onUndo:       cbUndo,
     onBoardStart: cbBoardStart,
+    onComplete:   () => { clearInterval(timerIv); endGame(); },
     isActive:     () => timeLeft > 0,
     options:      { ...curGameOptions },
     hideFooter:   () => document.getElementById('game-foot').style.display = 'none',
     showFooter:   () => document.getElementById('game-foot').style.display = 'flex',
   });
 
+  const multiDur = room.options?.duration || curGameOptions.duration || 60;
   startCountdown(() => {
     db.ref(`rooms/${schoolCode}/list/${room.id}`).update({ status: 'playing' });
-    startTimer(60); // 멀티는 항상 60초
+    startTimer(multiDur);
 
     // ★ 실시간 랭킹 감청 시작
     if (rankRef) rankRef.off();
@@ -855,8 +861,8 @@ function prepareGameScreen(multi) {
 
 function getGameModule() {
   const map = {
-    tongbun:    window.TongbunGame,
-    sandeungban: window.SandeungbanGame,
+    tongbun:   window.TongbunGame,
+    sandeunban: window.SanDeunBanGame,
   };
   return map[curGameKey] || null;
 }
@@ -1001,6 +1007,15 @@ function toast(msg) {
 
 document.getElementById('inp-school').addEventListener('keydown', e => { if(e.key==='Enter') document.getElementById('inp-name').focus(); });
 document.getElementById('inp-name').addEventListener('keydown',   e => { if(e.key==='Enter') doLogin(); });
+
+// Firebase 재연결 시 presence 재등록 (네트워크 끊김 복구)
+db.ref('.info/connected').on('value', snap => {
+  if (snap.val() === true && schoolCode && myId && myName) {
+    const pref = db.ref(`rooms/${schoolCode}/_presence/${myId}`);
+    pref.set({ name: myName, at: Date.now() });
+    pref.onDisconnect().remove();
+  }
+});
 </script>
 </body>
 </html>
