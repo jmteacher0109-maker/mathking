@@ -15,7 +15,6 @@
   let connectedCnt = 0;
   let activeDrags  = {};
   let hitRadius    = 32;
-  let resizeObs    = null;
 
   const BOARD_CLR = '#22d3ee';
   const PAIRS     = 4;
@@ -87,18 +86,6 @@
         });
       });
 
-      // 일부 브라우저에서 레이아웃이 늦게 잡히는 경우 보정
-      setTimeout(_sizeBoard, 120);
-      setTimeout(_sizeBoard, 400);
-
-      // board-wrap 크기가 바뀌면 자동 재계산
-      if (typeof ResizeObserver !== 'undefined') {
-        resizeObs = new ResizeObserver(() => {
-          requestAnimationFrame(_sizeBoard);
-        });
-        resizeObs.observe(wrap);
-      }
-
       window.addEventListener('resize', _onResize);
     },
 
@@ -114,11 +101,6 @@
 
     destroy() {
       window.removeEventListener('resize', _onResize);
-
-      if (resizeObs) {
-        resizeObs.disconnect();
-        resizeObs = null;
-      }
 
       _cancelAllDrags();
 
@@ -145,9 +127,9 @@
   /* ════════════════════════════
      RESIZE
   ════════════════════════════ */
-  function _onResize() {
-    _sizeBoard();
-  }
+function _onResize() {
+  requestAnimationFrame(_sizeBoard);
+}
 
   /* ════════════════════════════
      BOARD SIZING
