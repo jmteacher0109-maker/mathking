@@ -34,7 +34,7 @@
   /* ════════════════════════════
      PUBLIC INTERFACE
   ════════════════════════════ */
-  window.SandeungbanGame = {
+  window.SanDeunBanGame = {
 
     /** 솔로용 타이머 (index.html 이 duration 프로퍼티를 읽음) */
     duration: 120,
