@@ -8,6 +8,10 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Jua&family=Noto+Sans+KR:wght@400;700&display=swap" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+
+  <!-- 게임 스크립트 사전 로드 (없으면 조용히 무시) -->
+  <script src="games/tongbun.js" onerror="console.warn('tongbun.js 없음')"></script>
+  <script src="games/sandeunban.js" onerror="console.warn('sandeunban.js 없음')"></script>
   <style>
     :root { --bg:#0d1117;--bg2:#161b22;--bg3:#1c2128;--border:#30363d;--text:#e6edf3;--dim:#8b949e;--accent:#FFD93D;--purple:#7c3aed;--purpleL:#a78bfa;--cyan:#22d3ee;--green:#34d399;--red:#f87171; }
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
@@ -358,13 +362,15 @@ function setLvl(lv,el){
   el.classList.add('sel'); snd('click');
 }
 
-/* SCRIPT LOADER - 핵심 수정: 모듈 존재 여부까지 확인 */
+/* SCRIPT LOADER - 사전 로드된 모듈 우선, 없으면 동적 로드 */
 function loadGameScript(src){
+  // 이미 모듈이 로드돼 있으면 바로 통과
+  if(getGameModule()!==null) return Promise.resolve();
+  // 동적 로드 fallback
   return new Promise((resolve,reject)=>{
-    if(document.querySelector(`script[data-game="${src}"]`)&&getGameModule()!==null){resolve();return;}
     const s=document.createElement('script');
     s.src=src; s.setAttribute('data-game',src);
-    s.onload=resolve;
+    s.onload=()=>{ getGameModule()!==null ? resolve() : reject(new Error('모듈 초기화 실패')); };
     s.onerror=()=>reject(new Error('로드 실패: '+src));
     document.head.appendChild(s);
   });
