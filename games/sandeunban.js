@@ -1,6 +1,8 @@
 /**
- * 분수 산 등반 게임 모듈 v2
- * window.SanDeunBanGame 으로 index.html 과 통신
+ * 분수 산 등반 게임 모듈 v3
+ * - 킹수학 플랫폼용: window.SanDeunBanGame 으로 연결
+ * - 개별 HTML 버전의 산 등반 UI를 플랫폼 모듈 형태로 변환
+ * - 플랫폼의 타이머/점수/결과 화면을 사용함
  */
 (function () {
   'use strict';
@@ -12,406 +14,794 @@
     4: { maxDen: 100, time: 120, steps: 20 },
   };
 
-  let cfg         = null;
-  let questions   = [];
+  let cfg = null;
+  let level = 1;
+  let questions = [];
+  let pathPoints = [];
   let currentStep = 0;
-  let totalSteps  = 12;
-  let wrongCount  = 0;
-  let localCombo  = 0;
-  let _checkBtn   = null;
-  let _keyHandler = null;
+  let totalSteps = 12;
+  let localCombo = 0;
+  let wrongCount = 0;
+
+  let checkBtn = null;
+  let keyHandler = null;
+  let toastTimer = null;
 
   window.SanDeunBanGame = {
     duration: 120,
 
     init(config) {
       cfg = config;
-      const lv   = config.options?.level || 1;
-      const lcfg = LEVEL_CFG[lv] || LEVEL_CFG[1];
+      level = Number(config.options?.level || 1);
+      const lcfg = LEVEL_CFG[level] || LEVEL_CFG[1];
 
       this.duration = lcfg.time;
-      totalSteps    = lcfg.steps;
-      currentStep   = 0;
-      wrongCount    = 0;
-      localCombo    = 0;
-      questions     = _genQuestions(totalSteps, lcfg.maxDen);
+      totalSteps = lcfg.steps;
+      currentStep = 0;
+      localCombo = 0;
+      wrongCount = 0;
+      questions = genQuestions(totalSteps, lcfg.maxDen);
+      pathPoints = getMountainPath(totalSteps);
 
-      if (cfg.hideFooter) cfg.hideFooter();
-      _injectStyles();
-      cfg.onBoardStart();
+      cfg.hideFooter?.();
+      injectStyles();
 
-      /* ── 핵심 수정: rAF 안에서 실제 픽셀 크기 측정 후 설정 ── */
+      const board = cfg.boardEl;
+      const wrap = board.parentElement;
+
+      wrap.style.cssText = `
+        flex: 1;
+        padding: 0;
+        min-height: 0;
+        min-width: 0;
+        display: flex;
+        align-items: stretch;
+        justify-content: stretch;
+      `;
+
+      board.style.cssText = `
+        position: relative;
+        width: 100%;
+        height: 100%;
+        min-height: 360px;
+        border-radius: 0;
+        overflow: hidden;
+        background: linear-gradient(180deg, #87CEEB 0%, #B8E0F7 42%, #D4EDD4 72%, #8FBC8F 100%);
+        box-shadow: none;
+        touch-action: manipulation;
+      `;
+
+      board.innerHTML = makeUI();
+
+      bindEvents();
+      cfg.onBoardStart?.();
+
       requestAnimationFrame(() => {
-        const board = cfg.boardEl;
-        const wrap  = board.parentElement;
-
-        /* wrap 여백 제거 */
-        wrap.style.padding        = '0';
-        wrap.style.alignItems     = 'stretch';
-        wrap.style.justifyContent = 'flex-start';
-
-        /* board 에 실제 px 크기 직접 지정 (% 대신) */
-        const w = wrap.clientWidth;
-        const h = wrap.clientHeight;
-        board.style.cssText = `
-          position:relative;
-          width:${w}px;
-          height:${h}px;
-          border-radius:0;
-          overflow:hidden;
-          background:transparent;
-          box-shadow:none;
-          touch-action:none;
-          flex-shrink:0;
-        `;
-
-        _injectUI(h);
-        _renderDots();
-        _moveClimber(0, true);
-        _showQuestion(0);
+        requestAnimationFrame(() => {
+          renderStepDots();
+          updateDots(0);
+          updateClimber(0, true);
+          updateProgressBar(0);
+          showQuestion(0);
+        });
       });
     },
 
     resetBoard() {
-      const numEl = document.getElementById('sdb-num');
-      const denEl = document.getElementById('sdb-den');
-      if (numEl) { numEl.value = ''; numEl.focus(); }
-      if (denEl) denEl.value = '';
-      _clearFlash();
+      clearInputs();
+      clearFlash();
+      const numEl = document.getElementById('sdb-ans-num');
+      numEl?.focus();
     },
 
     destroy() {
-      if (_checkBtn)   _checkBtn.removeEventListener('click', _check);
-      if (_keyHandler) document.removeEventListener('keydown', _keyHandler);
+      unbindEvents();
+      clearTimeout(toastTimer);
+
       const board = cfg?.boardEl;
-      if (board) { board.innerHTML = ''; board.style.cssText = ''; }
       const wrap = board?.parentElement;
-      if (wrap) { wrap.style.padding = ''; wrap.style.alignItems = ''; wrap.style.justifyContent = ''; }
-      if (cfg?.showFooter) cfg.showFooter();
-      document.getElementById('sdb-styles')?.remove();
+
+      if (board) {
+        board.innerHTML = '';
+        board.style.cssText = '';
+      }
+
+      if (wrap) {
+        wrap.style.cssText = '';
+      }
+
+      document.getElementById('sdb-platform-styles')?.remove();
+      cfg?.showFooter?.();
+
       cfg = null;
+      questions = [];
+      pathPoints = [];
+      currentStep = 0;
+      localCombo = 0;
+      wrongCount = 0;
     },
   };
 
-  /* ── 수학 ── */
-  function _gcd(a, b) { return b === 0 ? a : _gcd(b, a % b); }
-
-  function _genFrac(maxDen) {
-    let tries = 0;
-    while (tries++ < 200) {
-      const d = Math.floor(Math.random() * (maxDen - 3)) + 4;
-      const n = Math.floor(Math.random() * (d - 1)) + 1;
-      const g = _gcd(n, d);
-      if (g > 1) return { n, d, an: n / g, ad: d / g };
-    }
-    return { n: 6, d: 8, an: 3, ad: 4 };
-  }
-
-  function _genQuestions(cnt, maxDen) {
-    const seen = new Set(), qs = [];
-    let tries = 0;
-    while (qs.length < cnt && tries++ < 600) {
-      const f = _genFrac(maxDen);
-      const k = `${f.n}/${f.d}`;
-      if (!seen.has(k)) { seen.add(k); qs.push(f); }
-    }
-    return qs.sort(() => Math.random() - .5);
-  }
-
-  /* ── 경로 ── */
-  function _getPath(n) {
-    const pts = [];
-    for (let i = 0; i <= n; i++) {
-      const t    = i / n;
-      const xBase = 50 + (t < .5 ? (.5 - t) * 18 : (t - .5) * -14);
-      const x    = xBase + Math.sin(t * Math.PI * 3) * 4;
-      const y    = 83 - t * 71;
-      pts.push({ x, y });
-    }
-    return pts;
-  }
-
-  /* ── UI 주입 (boardHeight 를 받아 절대 위치 계산) ── */
-  function _injectUI(boardHeight) {
-    const board = cfg.boardEl;
-    /* 진행바와 패널의 하단 위치를 board 높이 기반으로 계산 */
-    const panelH   = Math.min(190, boardHeight * 0.32);  // 패널 높이
-    const progBot  = panelH + 12;                        // 진행바 bottom
-
-    board.innerHTML = `
-      <svg id="sdb-svg"
-        style="position:absolute;inset:0;width:100%;height:100%;"
-        viewBox="0 0 400 600" preserveAspectRatio="xMidYMid slice"
-        xmlns="http://www.w3.org/2000/svg">
+  function makeUI() {
+    return `
+      <svg id="sdb-mountain-canvas" viewBox="0 0 400 600" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
         <defs>
-          <linearGradient id="sdb-sky" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#0d1f3c"/>
-            <stop offset="60%" stop-color="#1a3a5c"/>
-            <stop offset="100%" stop-color="#2d5a3d"/>
+          <linearGradient id="sdbSkyGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#87CEEB"/>
+            <stop offset="100%" stop-color="#D4EDD4"/>
           </linearGradient>
-          <linearGradient id="sdb-mtn" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#8fa88f"/>
-            <stop offset="100%" stop-color="#4a6a4a"/>
+          <linearGradient id="sdbMtnGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#8FA88F"/>
+            <stop offset="100%" stop-color="#5A7A5A"/>
           </linearGradient>
         </defs>
-        <rect width="400" height="600" fill="url(#sdb-sky)"/>
-        <circle cx="60"  cy="40"  r="1.5" fill="white" opacity=".7"/>
-        <circle cx="130" cy="25"  r="1"   fill="white" opacity=".6"/>
-        <circle cx="200" cy="55"  r="1.5" fill="white" opacity=".5"/>
-        <circle cx="290" cy="35"  r="1"   fill="white" opacity=".7"/>
-        <circle cx="350" cy="20"  r="1.5" fill="white" opacity=".6"/>
-        <ellipse cx="80"  cy="80" rx="50" ry="20" fill="white" opacity=".12"/>
-        <ellipse cx="310" cy="95" rx="42" ry="18" fill="white" opacity=".10"/>
-        <polygon points="200,38 25,520 375,520" fill="url(#sdb-mtn)"/>
-        <polygon points="200,38 174,105 226,105" fill="white" opacity=".92"/>
-        <polygon points="200,38 200,520 375,520" fill="rgba(0,0,0,0.12)"/>
-        <polygon points="55,305 0,520 145,520" fill="#3a5a3a" opacity=".65"/>
-        <polygon points="345,285 255,520 400,520" fill="#3a5a3a" opacity=".60"/>
-        <rect x="0" y="520" width="400" height="80" fill="#2d4a2d"/>
-        <polygon points="48,482 40,520 56,520"  fill="#1d3d1d"/>
-        <polygon points="68,472 60,520 76,520"  fill="#1d3d1d"/>
-        <polygon points="332,477 324,520 340,520" fill="#1d3d1d"/>
-        <polygon points="352,470 344,520 360,520" fill="#1d3d1d"/>
-        <line x1="200" y1="38" x2="200" y2="15" stroke="#b8961e" stroke-width="2.5"/>
-        <polygon points="200,15 220,22 200,29" fill="#FF6B35"/>
+
+        <rect width="400" height="600" fill="url(#sdbSkyGrad)"/>
+
+        <ellipse cx="80" cy="80" rx="50" ry="22" fill="white" opacity="0.70"/>
+        <ellipse cx="110" cy="72" rx="34" ry="18" fill="white" opacity="0.82"/>
+        <ellipse cx="310" cy="100" rx="44" ry="18" fill="white" opacity="0.62"/>
+        <ellipse cx="340" cy="93" rx="28" ry="15" fill="white" opacity="0.70"/>
+
+        <polygon points="200,40 30,520 370,520" fill="url(#sdbMtnGrad)"/>
+        <polygon points="200,40 175,110 225,110" fill="white" opacity="0.95"/>
+        <polygon points="200,40 200,520 370,520" fill="rgba(0,0,0,0.08)"/>
+
+        <polygon points="60,300 0,520 150,520" fill="#4A6741" opacity="0.60"/>
+        <polygon points="340,280 250,520 400,520" fill="#4A6741" opacity="0.55"/>
+
+        <rect x="0" y="520" width="400" height="80" fill="#5A7A5A"/>
+
+        <polygon points="50,480 42,520 58,520" fill="#2d5a2d"/>
+        <polygon points="70,470 62,520 78,520" fill="#2d5a2d"/>
+        <polygon points="330,475 322,520 338,520" fill="#2d5a2d"/>
+        <polygon points="350,468 342,520 358,520" fill="#2d5a2d"/>
+
+        <line x1="200" y1="40" x2="200" y2="18" stroke="#8B6914" stroke-width="2.5"/>
+        <polygon points="200,18 218,25 200,32" fill="#FF6B35"/>
       </svg>
 
-      <div id="sdb-dots" style="position:absolute;inset:0;pointer-events:none;z-index:6;"></div>
+      <div id="sdb-step-dots"></div>
+      <div id="sdb-climber">🧗</div>
 
-      <div id="sdb-climber" style="position:absolute;font-size:1.9rem;transform:translate(-50%,-100%);
-        transition:left .6s cubic-bezier(.4,0,.2,1),top .6s cubic-bezier(.4,0,.2,1);
-        z-index:8;filter:drop-shadow(0 2px 4px rgba(0,0,0,.6));pointer-events:none;">🧗</div>
-
-      <!-- 진행바 -->
-      <div style="position:absolute;bottom:${progBot}px;left:10px;right:10px;
-        display:flex;align-items:center;gap:6px;z-index:9;pointer-events:none;">
-        <span style="font-size:.72rem;color:rgba(255,255,255,.7);text-shadow:0 1px 4px rgba(0,0,0,.8);white-space:nowrap;">🏕️</span>
-        <div style="flex:1;height:7px;background:rgba(255,255,255,.2);border-radius:10px;overflow:hidden;">
-          <div id="sdb-prog-fill" style="height:100%;background:linear-gradient(90deg,#FFD700,#FF6B35);border-radius:10px;width:0%;transition:width .5s ease;"></div>
+      <div class="sdb-progress">
+        <span class="sdb-progress-label">🏕️ 출발</span>
+        <div class="sdb-progress-track">
+          <div class="sdb-progress-fill" id="sdb-progress-fill"></div>
         </div>
-        <span style="font-size:.72rem;color:rgba(255,255,255,.7);text-shadow:0 1px 4px rgba(0,0,0,.8);white-space:nowrap;">🏔️ 정상</span>
+        <span class="sdb-progress-label">🏔️ 정상</span>
       </div>
 
-      <!-- 질문 패널 -->
-      <div id="sdb-panel" style="position:absolute;bottom:10px;left:10px;right:10px;
-        background:rgba(22,27,34,.96);backdrop-filter:blur(8px);
-        border:1px solid rgba(255,255,255,.12);border-radius:18px;
-        padding:12px 16px 10px;z-index:10;">
-        <div id="sdb-step-lbl" style="font-size:.78rem;color:#8b949e;text-align:center;
-          margin-bottom:5px;font-family:'Noto Sans KR',sans-serif;">1 / ${totalSteps}번째 발걸음</div>
-        <div style="font-size:.82rem;color:#aaa;text-align:center;margin-bottom:8px;
-          font-family:'Noto Sans KR',sans-serif;">기약분수로 나타내세요</div>
+      <div id="sdb-question-panel">
+        <div class="sdb-q-step" id="sdb-q-step">1 / ${totalSteps}번째 발걸음</div>
+        <div class="sdb-q-prompt">기약분수로 나타내세요</div>
 
-        <div style="display:flex;align-items:center;justify-content:center;gap:14px;">
-          <div style="background:rgba(34,211,238,.08);border:1px solid rgba(34,211,238,.25);
-            border-radius:12px;padding:8px 16px;display:flex;flex-direction:column;align-items:center;">
-            <div id="sdb-qn" style="font-size:1.7rem;font-weight:900;color:#e6edf3;line-height:1.1;">6</div>
-            <div style="width:44px;height:3px;background:#e6edf3;border-radius:2px;margin:4px 0;"></div>
-            <div id="sdb-qd" style="font-size:1.7rem;font-weight:900;color:#e6edf3;line-height:1.1;">8</div>
+        <div class="sdb-fraction-row">
+          <div class="sdb-frac-box">
+            <div class="sdb-frac-n" id="sdb-q-num">6</div>
+            <div class="sdb-frac-line"></div>
+            <div class="sdb-frac-d" id="sdb-q-den">8</div>
           </div>
-          <span style="font-size:1.3rem;color:#555;">→</span>
-          <div id="sdb-ans-box" style="background:#1c2128;border:1.5px solid #30363d;
-            border-radius:12px;padding:6px 12px;display:flex;flex-direction:column;
-            align-items:center;transition:border-color .2s;">
-            <input id="sdb-num" type="number" min="1" inputmode="numeric" placeholder="?"
-              style="width:58px;text-align:center;border:none;outline:none;
-              font-size:1.7rem;font-weight:900;font-family:'Jua',sans-serif;
-              color:#e6edf3;background:transparent;">
-            <div style="width:44px;height:3px;background:#8b949e;border-radius:2px;margin:3px 0;"></div>
-            <input id="sdb-den" type="number" min="1" inputmode="numeric" placeholder="?"
-              style="width:58px;text-align:center;border:none;outline:none;
-              font-size:1.7rem;font-weight:900;font-family:'Jua',sans-serif;
-              color:#e6edf3;background:transparent;">
+
+          <div class="sdb-arrow">→</div>
+
+          <div class="sdb-answer-box" id="sdb-answer-box">
+            <input class="sdb-ans-input" id="sdb-ans-num" type="number" min="1" inputmode="numeric" placeholder="?">
+            <div class="sdb-ans-line"></div>
+            <input class="sdb-ans-input" id="sdb-ans-den" type="number" min="1" inputmode="numeric" placeholder="?">
           </div>
         </div>
 
-        <button id="sdb-check-btn" style="margin-top:10px;width:100%;padding:11px;
-          background:linear-gradient(135deg,#7c3aed,#a78bfa);border:none;border-radius:50px;
-          font-size:1.1rem;font-weight:900;font-family:'Jua',sans-serif;color:#fff;
-          cursor:pointer;box-shadow:0 4px 14px rgba(124,58,237,.35);
-          transition:transform .12s,box-shadow .12s;min-height:44px;">확인 ✓</button>
+        <button id="sdb-check-btn">확인 ✓</button>
       </div>
 
-      <div id="sdb-toast" style="position:absolute;top:10px;left:50%;
-        transform:translateX(-50%) scale(0);background:#34d399;color:#000;
-        font-size:1.2rem;font-weight:900;font-family:'Jua',sans-serif;
-        padding:8px 22px;border-radius:50px;z-index:20;pointer-events:none;
-        white-space:nowrap;transition:transform .2s cubic-bezier(.175,.885,.32,1.275),opacity .2s;
-        opacity:0;"></div>
+      <div id="sdb-feedback-toast"></div>
+    `;
+  }
+
+  function injectStyles() {
+    if (document.getElementById('sdb-platform-styles')) return;
+
+    const style = document.createElement('style');
+    style.id = 'sdb-platform-styles';
+    style.textContent = `
+      #sdb-mountain-canvas {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+      }
+
+      #sdb-step-dots {
+        position: absolute;
+        inset: 0;
+        z-index: 5;
+        pointer-events: none;
+      }
+
+      .sdb-step-dot {
+        position: absolute;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        border: 2px solid #fff;
+        box-shadow: 0 2px 6px rgba(0,0,0,.3);
+        transform: translate(-50%, -50%);
+        transition: background .3s, transform .2s, width .2s, height .2s;
+      }
+
+      .sdb-step-dot.done {
+        background: #FFD700;
+      }
+
+      .sdb-step-dot.current {
+        background: #FF6B35;
+        width: 18px;
+        height: 18px;
+        animation: sdbDotPulse 1s infinite;
+      }
+
+      .sdb-step-dot.upcoming {
+        background: rgba(255,255,255,.55);
+      }
+
+      @keyframes sdbDotPulse {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(255,107,53,.6); }
+        50% { box-shadow: 0 0 0 8px rgba(255,107,53,0); }
+      }
+
+      #sdb-climber {
+        position: absolute;
+        font-size: 2rem;
+        transform: translate(-50%, -100%);
+        transition: left .7s cubic-bezier(.4,0,.2,1), top .7s cubic-bezier(.4,0,.2,1);
+        z-index: 8;
+        filter: drop-shadow(0 2px 4px rgba(0,0,0,.4));
+        pointer-events: none;
+      }
+
+      .sdb-progress {
+        position: absolute;
+        left: 12px;
+        right: 12px;
+        bottom: 218px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        z-index: 9;
+        pointer-events: none;
+      }
+
+      .sdb-progress-label {
+        font-size: .75rem;
+        font-weight: 700;
+        color: #fff;
+        text-shadow: 0 1px 4px rgba(0,0,0,.55);
+        white-space: nowrap;
+        font-family: 'Noto Sans KR', sans-serif;
+      }
+
+      .sdb-progress-track {
+        flex: 1;
+        height: 8px;
+        background: rgba(255,255,255,.35);
+        border-radius: 10px;
+        overflow: hidden;
+      }
+
+      .sdb-progress-fill {
+        width: 0%;
+        height: 100%;
+        background: linear-gradient(90deg,#FFD700,#FF6B35);
+        border-radius: 10px;
+        transition: width .6s ease;
+      }
+
+      #sdb-question-panel {
+        position: absolute;
+        left: 12px;
+        right: 12px;
+        bottom: 16px;
+        background: rgba(255,255,255,.93);
+        border: 1px solid rgba(255,255,255,.5);
+        border-radius: 24px;
+        padding: 18px 20px 14px;
+        box-shadow: 0 -2px 30px rgba(0,0,0,.10), 0 4px 20px rgba(0,0,0,.12);
+        z-index: 10;
+        font-family: 'Noto Sans KR', 'Jua', sans-serif;
+      }
+
+      .sdb-q-step {
+        font-size: .8rem;
+        color: #777;
+        font-weight: 700;
+        text-align: center;
+        margin-bottom: 5px;
+      }
+
+      .sdb-q-prompt {
+        font-size: .95rem;
+        color: #555;
+        text-align: center;
+        margin-bottom: 12px;
+        font-weight: 700;
+      }
+
+      .sdb-fraction-row {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+      }
+
+      .sdb-frac-box {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        background: #f0f4ff;
+        border: 1px solid #dde3ff;
+        border-radius: 14px;
+        padding: 10px 18px;
+      }
+
+      .sdb-frac-n,
+      .sdb-frac-d {
+        font-size: 1.65rem;
+        font-weight: 900;
+        color: #2C3E50;
+        line-height: 1.1;
+      }
+
+      .sdb-frac-line {
+        width: 50px;
+        height: 3px;
+        background: #2C3E50;
+        border-radius: 2px;
+        margin: 4px 0;
+      }
+
+      .sdb-arrow {
+        font-size: 1.4rem;
+        color: #999;
+        font-weight: 900;
+      }
+
+      .sdb-answer-box {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        background: #fff;
+        border: 2px solid #dde3ff;
+        border-radius: 14px;
+        padding: 8px 14px;
+        transition: border-color .2s, background .2s;
+      }
+
+      .sdb-answer-box.correct-flash {
+        border-color: #2ECC71;
+        background: #f0fff7;
+      }
+
+      .sdb-answer-box.wrong-flash {
+        border-color: #e74c3c;
+        background: #fff5f5;
+        animation: sdbShake .3s;
+      }
+
+      @keyframes sdbShake {
+        0%, 100% { transform: translateX(0); }
+        25% { transform: translateX(-6px); }
+        75% { transform: translateX(6px); }
+      }
+
+      .sdb-ans-input {
+        width: 64px;
+        text-align: center;
+        border: none;
+        outline: none;
+        font-size: 1.65rem;
+        font-weight: 900;
+        font-family: 'Noto Sans KR', 'Jua', sans-serif;
+        color: #2C3E50;
+        background: transparent;
+      }
+
+      .sdb-ans-line {
+        width: 50px;
+        height: 3px;
+        background: #bbb;
+        border-radius: 2px;
+        margin: 4px 0;
+      }
+
+      .sdb-ans-input::-webkit-inner-spin-button,
+      .sdb-ans-input::-webkit-outer-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+      }
+
+      .sdb-ans-input {
+        -moz-appearance: textfield;
+      }
+
+      #sdb-check-btn {
+        margin-top: 14px;
+        width: 100%;
+        background: linear-gradient(135deg, #5B6EF5, #7B8EFF);
+        border: none;
+        border-radius: 50px;
+        padding: 14px;
+        font-size: 1.1rem;
+        font-weight: 900;
+        font-family: 'Noto Sans KR', 'Jua', sans-serif;
+        color: #fff;
+        cursor: pointer;
+        box-shadow: 0 4px 14px rgba(91,110,245,.35);
+        transition: transform .12s, box-shadow .12s;
+        min-height: 48px;
+      }
+
+      #sdb-check-btn:active {
+        transform: scale(.97);
+        box-shadow: 0 2px 6px rgba(91,110,245,.3);
+      }
+
+      #sdb-feedback-toast {
+        position: absolute;
+        top: 16px;
+        left: 50%;
+        transform: translateX(-50%) scale(0);
+        opacity: 0;
+        background: #2ECC71;
+        color: #fff;
+        font-size: 1.25rem;
+        font-weight: 900;
+        padding: 10px 24px;
+        border-radius: 50px;
+        z-index: 20;
+        pointer-events: none;
+        font-family: 'Noto Sans KR', 'Jua', sans-serif;
+        white-space: nowrap;
+        box-shadow: 0 4px 20px rgba(46,204,113,.5);
+        transition: transform .2s cubic-bezier(.175,.885,.32,1.275), opacity .25s;
+      }
+
+      #sdb-feedback-toast.wrong {
+        background: #e74c3c;
+        box-shadow: 0 4px 20px rgba(231,76,60,.5);
+      }
+
+      @media (max-height: 650px) {
+        .sdb-progress {
+          bottom: 196px;
+        }
+
+        #sdb-question-panel {
+          padding: 14px 16px 12px;
+        }
+
+        .sdb-q-prompt {
+          margin-bottom: 8px;
+        }
+
+        #sdb-check-btn {
+          padding: 11px;
+          min-height: 42px;
+          margin-top: 10px;
+        }
+
+        .sdb-frac-n,
+        .sdb-frac-d,
+        .sdb-ans-input {
+          font-size: 1.45rem;
+        }
+      }
     `;
 
-    _checkBtn = document.getElementById('sdb-check-btn');
-    _checkBtn.addEventListener('click', _check);
-
-    _keyHandler = e => {
-      if (e.key !== 'Enter' || !cfg?.isActive()) return;
-      const numEl = document.getElementById('sdb-num');
-      const denEl = document.getElementById('sdb-den');
-      if (document.activeElement === numEl) { denEl?.focus(); return; }
-      _check();
-    };
-    document.addEventListener('keydown', _keyHandler);
-
-    document.getElementById('sdb-num').addEventListener('keydown', e => {
-      if (e.key === 'Tab') { e.preventDefault(); document.getElementById('sdb-den').focus(); }
-    });
+    document.head.appendChild(style);
   }
 
-  /* ── 점 렌더링 ── */
-  function _renderDots() {
-    const cont = document.getElementById('sdb-dots');
-    if (!cont) return;
-    cont.innerHTML = '';
-    const pts = _getPath(totalSteps);
-    for (let i = 1; i <= totalSteps; i++) {
-      const p = pts[i];
-      const dot = document.createElement('div');
-      dot.id = `sdb-dot-${i}`;
-      dot.style.cssText = `position:absolute;left:${p.x}%;top:${p.y}%;
-        width:12px;height:12px;background:rgba(255,255,255,.35);
-        border:2px solid rgba(255,255,255,.5);border-radius:50%;
-        transform:translate(-50%,-50%);transition:background .3s,transform .2s;
-        box-shadow:0 2px 6px rgba(0,0,0,.4);`;
-      cont.appendChild(dot);
-    }
-  }
+  function bindEvents() {
+    checkBtn = document.getElementById('sdb-check-btn');
+    checkBtn?.addEventListener('click', checkAnswer);
 
-  function _updateDots(step) {
-    for (let i = 1; i <= totalSteps; i++) {
-      const d = document.getElementById(`sdb-dot-${i}`);
-      if (!d) continue;
-      if (i < step) {
-        d.style.background = '#FFD700'; d.style.borderColor = '#FFD700';
-        d.style.transform = 'translate(-50%,-50%) scale(1)';
-      } else if (i === step) {
-        d.style.background = '#FF6B35'; d.style.borderColor = '#fff';
-        d.style.transform = 'translate(-50%,-50%) scale(1.4)';
+    const numEl = document.getElementById('sdb-ans-num');
+    const denEl = document.getElementById('sdb-ans-den');
+
+    numEl?.addEventListener('keydown', handleInputKey);
+    denEl?.addEventListener('keydown', handleInputKey);
+
+    keyHandler = e => {
+      if (e.key !== 'Enter') return;
+      if (!cfg?.boardEl?.contains(document.activeElement)) return;
+      e.preventDefault();
+
+      if (document.activeElement === numEl) {
+        denEl?.focus();
       } else {
-        d.style.background = 'rgba(255,255,255,.35)';
-        d.style.borderColor = 'rgba(255,255,255,.5)';
-        d.style.transform = 'translate(-50%,-50%) scale(1)';
+        checkAnswer();
       }
-    }
+    };
+
+    document.addEventListener('keydown', keyHandler);
   }
 
-  /* ── 등산객 ── */
-  function _moveClimber(step, instant) {
-    const cl = document.getElementById('sdb-climber');
-    if (!cl) return;
-    const p = _getPath(totalSteps)[Math.min(step, totalSteps)];
-    if (instant) {
-      cl.style.transition = 'none';
-      cl.style.left = p.x + '%'; cl.style.top = p.y + '%';
-      requestAnimationFrame(() => { cl.style.transition = ''; });
+  function unbindEvents() {
+    checkBtn?.removeEventListener('click', checkAnswer);
+
+    const numEl = document.getElementById('sdb-ans-num');
+    const denEl = document.getElementById('sdb-ans-den');
+
+    numEl?.removeEventListener('keydown', handleInputKey);
+    denEl?.removeEventListener('keydown', handleInputKey);
+
+    if (keyHandler) {
+      document.removeEventListener('keydown', keyHandler);
+      keyHandler = null;
+    }
+
+    checkBtn = null;
+  }
+
+  function handleInputKey(e) {
+    if (e.key !== 'Enter') return;
+
+    e.preventDefault();
+
+    const numEl = document.getElementById('sdb-ans-num');
+    const denEl = document.getElementById('sdb-ans-den');
+
+    if (document.activeElement === numEl) {
+      denEl?.focus();
     } else {
-      cl.style.left = p.x + '%'; cl.style.top = p.y + '%';
+      checkAnswer();
     }
   }
 
-  function _updateProgBar(step) {
-    const fill = document.getElementById('sdb-prog-fill');
-    if (fill) fill.style.width = (step / totalSteps * 100) + '%';
+  function showQuestion(idx) {
+    const q = questions[idx];
+    if (!q) return;
+
+    const stepEl = document.getElementById('sdb-q-step');
+    const qNumEl = document.getElementById('sdb-q-num');
+    const qDenEl = document.getElementById('sdb-q-den');
+
+    if (stepEl) stepEl.textContent = `${idx + 1} / ${totalSteps}번째 발걸음`;
+    if (qNumEl) qNumEl.textContent = q.num;
+    if (qDenEl) qDenEl.textContent = q.den;
+
+    clearInputs();
+    clearFlash();
+
+    setTimeout(() => document.getElementById('sdb-ans-num')?.focus(), 80);
   }
 
-  /* ── 문제 표시 ── */
-  function _showQuestion(idx) {
-    const q = questions[idx]; if (!q) return;
-    const lbl = document.getElementById('sdb-step-lbl');
-    if (lbl) lbl.textContent = `${idx + 1} / ${totalSteps}번째 발걸음`;
-    const qn = document.getElementById('sdb-qn'); if (qn) qn.textContent = q.n;
-    const qd = document.getElementById('sdb-qd'); if (qd) qd.textContent = q.d;
-    const numEl = document.getElementById('sdb-num'); if (numEl) numEl.value = '';
-    const denEl = document.getElementById('sdb-den'); if (denEl) denEl.value = '';
-    _clearFlash();
-    setTimeout(() => numEl?.focus(), 80);
-  }
+  function checkAnswer() {
+    if (!cfg?.isActive?.()) return;
+    if (currentStep >= totalSteps) return;
 
-  /* ── 정답 확인 ── */
-  function _check() {
-    if (!cfg?.isActive() || currentStep >= totalSteps) return;
-    const q    = questions[currentStep];
-    const numEl = document.getElementById('sdb-num');
-    const denEl = document.getElementById('sdb-den');
-    const uNum = parseInt(numEl?.value);
-    const uDen = parseInt(denEl?.value);
-    if (!uNum || !uDen || uNum < 1 || uDen < 1) { numEl?.focus(); return; }
+    const q = questions[currentStep];
+    if (!q) return;
 
-    const g       = _gcd(uNum, uDen);
-    const reduced = g === 1;
-    const equiv   = uNum * q.d === uDen * q.n;
+    const numEl = document.getElementById('sdb-ans-num');
+    const denEl = document.getElementById('sdb-ans-den');
 
-    if (reduced && equiv) {
+    const userNum = parseInt(numEl?.value, 10);
+    const userDen = parseInt(denEl?.value, 10);
+
+    if (!Number.isFinite(userNum) || !Number.isFinite(userDen) || userNum < 1 || userDen < 1) {
+      numEl?.focus();
+      return;
+    }
+
+    const isReduced = gcd(userNum, userDen) === 1;
+    const isEquivalent = userNum * q.den === userDen * q.num;
+
+    if (isReduced && isEquivalent) {
       localCombo++;
-      _flashBox(true);
-      cfg.onCorrect();
-      _showToast(localCombo >= 3 ? `🔥 ${localCombo}연속!` : '⭕ 정답!', false);
+      flashBox(true);
+      cfg.onCorrect?.();
+
       currentStep++;
-      _updateDots(currentStep);
-      _moveClimber(currentStep, false);
-      _updateProgBar(currentStep);
+      updateDots(currentStep);
+      updateClimber(currentStep, false);
+      updateProgressBar(currentStep);
+
+      showToast(localCombo >= 3 ? `🔥 ${localCombo}연속!` : '⭕ 정답!', false);
 
       if (currentStep >= totalSteps) {
-        _showToast('🏆 정상 등반!', false);
-        cfg.onBoardStart();
+        showToast('🏆 정상 등반!', false);
         setTimeout(() => {
-          if (!cfg?.isActive()) return;
-          const lv = cfg.options?.level || 1;
-          questions = _genQuestions(totalSteps, LEVEL_CFG[lv].maxDen);
-          currentStep = 0;
-          _renderDots(); _moveClimber(0, true); _updateProgBar(0); _showQuestion(0);
-        }, 800);
+          cfg?.onComplete?.();
+        }, 700);
       } else {
-        setTimeout(() => _showQuestion(currentStep), 350);
+        cfg.onBoardStart?.();
+        setTimeout(() => showQuestion(currentStep), 360);
       }
     } else {
-      localCombo = 0; wrongCount++;
-      _flashBox(false);
-      _showToast(!equiv ? '❌ 크기가 달라요!' : '❌ 기약분수가 아니에요!', true);
-      cfg.onWrong();
+      localCombo = 0;
+      wrongCount++;
+      flashBox(false);
+      cfg.onWrong?.();
+
+      showToast(!isEquivalent ? '❌ 크기가 달라요!' : '❌ 기약분수가 아니에요!', true);
+
       setTimeout(() => {
-        _clearFlash();
-        if (numEl) { numEl.value = ''; numEl.focus(); }
-        if (denEl) denEl.value = '';
+        clearInputs();
+        clearFlash();
+        numEl?.focus();
       }, 420);
     }
   }
 
-  /* ── 피드백 ── */
-  function _flashBox(ok) {
-    const box = document.getElementById('sdb-ans-box'); if (!box) return;
-    box.style.borderColor = ok ? '#34d399' : '#f87171';
-    box.style.background  = ok ? 'rgba(52,211,153,.08)' : 'rgba(248,113,113,.08)';
-    if (!ok) { box.style.animation='none'; void box.offsetWidth; box.style.animation='sdb-shake .3s ease'; }
-  }
-  function _clearFlash() {
-    const box = document.getElementById('sdb-ans-box');
-    if (box) { box.style.borderColor=''; box.style.background=''; box.style.animation=''; }
-  }
-  let _toastTimer;
-  function _showToast(msg, isWrong) {
-    const el = document.getElementById('sdb-toast'); if (!el) return;
-    el.textContent = msg;
-    el.style.background = isWrong ? '#f87171' : '#34d399';
-    el.style.color      = isWrong ? '#fff'     : '#000';
-    clearTimeout(_toastTimer);
-    el.style.transform = 'translateX(-50%) scale(1)'; el.style.opacity = '1';
-    _toastTimer = setTimeout(() => {
-      el.style.transform = 'translateX(-50%) scale(.8)'; el.style.opacity = '0';
-    }, 750);
+  function clearInputs() {
+    const numEl = document.getElementById('sdb-ans-num');
+    const denEl = document.getElementById('sdb-ans-den');
+
+    if (numEl) numEl.value = '';
+    if (denEl) denEl.value = '';
   }
 
-  /* ── CSS ── */
-  function _injectStyles() {
-    if (document.getElementById('sdb-styles')) return;
-    const s = document.createElement('style');
-    s.id = 'sdb-styles';
-    s.textContent = `
-      @keyframes sdb-shake{0%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}100%{transform:translateX(0)}}
-      #sdb-num::-webkit-inner-spin-button,#sdb-den::-webkit-inner-spin-button,
-      #sdb-num::-webkit-outer-spin-button,#sdb-den::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
-      #sdb-num,#sdb-den{-moz-appearance:textfield;}
-    `;
-    document.head.appendChild(s);
+  function flashBox(ok) {
+    const box = document.getElementById('sdb-answer-box');
+    if (!box) return;
+
+    box.classList.remove('correct-flash', 'wrong-flash');
+    void box.offsetWidth;
+    box.classList.add(ok ? 'correct-flash' : 'wrong-flash');
   }
 
+  function clearFlash() {
+    const box = document.getElementById('sdb-answer-box');
+    if (!box) return;
+
+    box.classList.remove('correct-flash', 'wrong-flash');
+  }
+
+  function showToast(message, isWrong) {
+    const toast = document.getElementById('sdb-feedback-toast');
+    if (!toast) return;
+
+    toast.textContent = message;
+    toast.className = isWrong ? 'wrong' : '';
+
+    clearTimeout(toastTimer);
+
+    requestAnimationFrame(() => {
+      toast.style.transform = 'translateX(-50%) scale(1)';
+      toast.style.opacity = '1';
+
+      toastTimer = setTimeout(() => {
+        toast.style.transform = 'translateX(-50%) scale(.8)';
+        toast.style.opacity = '0';
+      }, 720);
+    });
+  }
+
+  function getMountainPath(n) {
+    const pts = [];
+
+    for (let i = 0; i <= n; i++) {
+      const t = i / n;
+      const xBase = 200 + (t < 0.5 ? (0.5 - t) * 60 : (t - 0.5) * -40);
+      const x = xBase + Math.sin(t * Math.PI * 3) * 12;
+      const y = 88 - t * 78;
+      pts.push({ x: (x / 400) * 100, y });
+    }
+
+    return pts;
+  }
+
+  function renderStepDots() {
+    const container = document.getElementById('sdb-step-dots');
+    if (!container) return;
+
+    container.innerHTML = '';
+
+    for (let i = 1; i <= totalSteps; i++) {
+      const p = pathPoints[i];
+      if (!p) continue;
+
+      const dot = document.createElement('div');
+      dot.className = 'sdb-step-dot upcoming';
+      dot.id = `sdb-dot-${i}`;
+      dot.style.left = p.x + '%';
+      dot.style.top = p.y + '%';
+      container.appendChild(dot);
+    }
+  }
+
+  function updateDots(step) {
+    for (let i = 1; i <= totalSteps; i++) {
+      const dot = document.getElementById(`sdb-dot-${i}`);
+      if (!dot) continue;
+
+      if (i < step) {
+        dot.className = 'sdb-step-dot done';
+      } else if (i === step) {
+        dot.className = 'sdb-step-dot current';
+      } else {
+        dot.className = 'sdb-step-dot upcoming';
+      }
+    }
+  }
+
+  function updateClimber(step, instant) {
+    const climber = document.getElementById('sdb-climber');
+    if (!climber) return;
+
+    const p = pathPoints[Math.min(step, totalSteps)];
+    if (!p) return;
+
+    if (instant) {
+      climber.style.transition = 'none';
+      climber.style.left = p.x + '%';
+      climber.style.top = p.y + '%';
+
+      requestAnimationFrame(() => {
+        climber.style.transition = '';
+      });
+    } else {
+      climber.style.left = p.x + '%';
+      climber.style.top = p.y + '%';
+    }
+  }
+
+  function updateProgressBar(step) {
+    const fill = document.getElementById('sdb-progress-fill');
+    if (!fill) return;
+
+    fill.style.width = (step / totalSteps * 100) + '%';
+  }
+
+  function gcd(a, b) {
+    a = Math.abs(a);
+    b = Math.abs(b);
+    return b === 0 ? a : gcd(b, a % b);
+  }
+
+  function genFraction(maxDen) {
+    let tries = 0;
+
+    while (tries++ < 200) {
+      const den = Math.floor(Math.random() * (maxDen - 3)) + 4;
+      const num = Math.floor(Math.random() * (den - 1)) + 1;
+      const g = gcd(num, den);
+
+      if (g > 1) {
+        return { num, den, ansNum: num / g, ansDen: den / g };
+      }
+    }
+
+    return { num: 6, den: 8, ansNum: 3, ansDen: 4 };
+  }
+
+  function genQuestions(count, maxDen) {
+    const seen = new Set();
+    const qs = [];
+    let tries = 0;
+
+    while (qs.length < count && tries++ < 800) {
+      const f = genFraction(maxDen);
+      const key = `${f.num}/${f.den}`;
+
+      if (seen.has(key)) continue;
+
+      seen.add(key);
+      qs.push(f);
+    }
+
+    return shuffle(qs);
+  }
+
+  function shuffle(arr) {
+    const copy = [...arr];
+
+    for (let i = copy.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+
+    return copy;
+  }
 })();
