@@ -8,13 +8,13 @@
  */
 
 const firebaseConfig = {
-  apiKey:            "AIzaSy...",
-  authDomain:        "my-project.firebaseapp.com",
-  databaseURL:       "https://my-project-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId:         "my-project",
-  storageBucket:     "my-project.appspot.com",
-  messagingSenderId: "123456789",
-  appId:             "1:123456789:web:abcdef"
+  apiKey: "AIzaSyCbkXyFyjSWwfXSpoFcEG38LOxqSa0J0sw",
+  authDomain: "mathk-1e5d1.firebaseapp.com",
+  databaseURL: "https://mathk-1e5d1-default-rtdb.firebaseio.com",
+  projectId: "mathk-1e5d1",
+  storageBucket: "mathk-1e5d1.firebasestorage.app",
+  messagingSenderId: "433859326",
+  appId: "1:433859326:web:88abca82a506e116af93af"
 };
 
 // Firebase 초기화
