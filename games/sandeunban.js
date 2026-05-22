@@ -1,12 +1,20 @@
 /**
- * 분수 산 등반 게임 모듈 v3
- * - 킹수학 플랫폼용: window.SanDeunBanGame 으로 연결
- * - 개별 HTML 버전의 산 등반 UI를 플랫폼 모듈 형태로 변환
- * - 플랫폼의 타이머/점수/결과 화면을 사용함
+ * 분수 산 등반 게임 모듈 v4
+ * ────────────────────────────────────────────
+ * ★ 약분 문제를 풀며 등반가를 정상까지 이동
+ * ★ 정상 도달 시 남은 시간 + 최고 콤보 표시
+ * ★ destroy() 시 game-svg / game-dots 복원 (타 게임 연동 버그 수정)
+ * ★ 게임 규칙:
+ *   - 기약분수로 약분해야 정답
+ *   - 오답은 등반 멈춤, 시간은 계속 줄어듦
+ *   - 연속 정답 시 콤보 카운터 표시
  */
 (function () {
   'use strict';
 
+  /* ══════════════════════════════════════
+     레벨 설정
+  ══════════════════════════════════════ */
   const LEVEL_CFG = {
     1: { maxDen: 20,  time: 120, steps: 12 },
     2: { maxDen: 36,  time: 100, steps: 15 },
@@ -14,68 +22,66 @@
     4: { maxDen: 100, time: 120, steps: 20 },
   };
 
-  let cfg = null;
-  let level = 1;
-  let questions = [];
-  let pathPoints = [];
+  /* ══════════════════════════════════════
+     상태 변수
+  ══════════════════════════════════════ */
+  let cfg         = null;
+  let level       = 1;
+  let questions   = [];
+  let pathPoints  = [];
   let currentStep = 0;
-  let totalSteps = 12;
-  let localCombo = 0;
-  let wrongCount = 0;
+  let totalSteps  = 12;
+  let localCombo  = 0;
+  let maxCombo    = 0;
+  let isGameOver  = false;
 
-  let checkBtn = null;
+  let checkBtn   = null;
   let keyHandler = null;
   let toastTimer = null;
+  let celebTimer = null;
 
+  /* ══════════════════════════════════════
+     PUBLIC API
+  ══════════════════════════════════════ */
   window.SanDeunBanGame = {
     duration: 120,
 
     init(config) {
-      cfg = config;
-      level = Number(config.options?.level || 1);
+      cfg        = config;
+      level      = Number(config.options?.level || 1);
       const lcfg = LEVEL_CFG[level] || LEVEL_CFG[1];
 
       this.duration = lcfg.time;
-      totalSteps = lcfg.steps;
-      currentStep = 0;
-      localCombo = 0;
-      wrongCount = 0;
-      questions = genQuestions(totalSteps, lcfg.maxDen);
-      pathPoints = getMountainPath(totalSteps);
+      totalSteps    = lcfg.steps;
+      currentStep   = 0;
+      localCombo    = 0;
+      maxCombo      = 0;
+      isGameOver    = false;
+      questions     = genQuestions(totalSteps, lcfg.maxDen);
+      pathPoints    = getMountainPath(totalSteps);
 
       cfg.hideFooter?.();
       injectStyles();
 
       const board = cfg.boardEl;
-      const wrap = board.parentElement;
+      const wrap  = board.parentElement;
 
       wrap.style.cssText = `
-        flex: 1;
-        padding: 0;
-        min-height: 0;
-        min-width: 0;
-        display: flex;
-        align-items: stretch;
-        justify-content: stretch;
+        flex: 1; padding: 0; min-height: 0; min-width: 0;
+        display: flex; align-items: stretch; justify-content: stretch;
       `;
-
       board.style.cssText = `
-        position: relative;
-        width: 100%;
-        height: 100%;
-        min-height: 360px;
-        border-radius: 0;
-        overflow: hidden;
-        background: linear-gradient(180deg, #87CEEB 0%, #B8E0F7 42%, #D4EDD4 72%, #8FBC8F 100%);
-        box-shadow: none;
-        touch-action: manipulation;
+        position: relative; width: 100%; height: 100%; min-height: 380px;
+        border-radius: 0; overflow: hidden;
+        background: linear-gradient(180deg,#5BA3D9 0%,#B8E0F7 45%,#C8E6A0 75%,#7AAD60 100%);
+        box-shadow: none; touch-action: manipulation;
       `;
 
-      board.innerHTML = makeUI();
-
+      board.innerHTML = buildUI(totalSteps);
       bindEvents();
       cfg.onBoardStart?.();
 
+      /* 두 번의 rAF: 화면 전환 직후 레이아웃 확정 후 렌더링 */
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           renderStepDots();
@@ -88,419 +94,362 @@
     },
 
     resetBoard() {
+      if (isGameOver) return;
       clearInputs();
       clearFlash();
-      const numEl = document.getElementById('sdb-ans-num');
-      numEl?.focus();
+      document.getElementById('sdb-ans-num')?.focus();
     },
 
     destroy() {
+      isGameOver = true;
       unbindEvents();
       clearTimeout(toastTimer);
+      clearTimeout(celebTimer);
 
       const board = cfg?.boardEl;
-      const wrap = board?.parentElement;
+      const wrap  = board?.parentElement;
 
       if (board) {
-        board.innerHTML = '';
+        /*
+         * ★★ 중요: game-svg / game-dots 복원
+         *    산 등반 게임은 board.innerHTML 전체를 교체하므로,
+         *    destroy 시 tongbun 등 다른 게임이 정상 작동하도록
+         *    원래 구조를 반드시 복원해야 합니다.
+         */
+        board.innerHTML = `
+          <svg id="game-svg" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:4;"></svg>
+          <div id="game-dots" style="position:absolute;inset:0;z-index:5;"></div>
+        `;
         board.style.cssText = '';
       }
+      if (wrap) wrap.style.cssText = '';
 
-      if (wrap) {
-        wrap.style.cssText = '';
-      }
-
-      document.getElementById('sdb-platform-styles')?.remove();
+      document.getElementById('sdb-styles')?.remove();
       cfg?.showFooter?.();
 
-      cfg = null;
-      questions = [];
+      cfg        = null;
+      questions  = [];
       pathPoints = [];
-      currentStep = 0;
-      localCombo = 0;
-      wrongCount = 0;
+      currentStep = localCombo = maxCombo = 0;
     },
   };
 
-  function makeUI() {
+  /* ══════════════════════════════════════
+     UI 빌드
+  ══════════════════════════════════════ */
+  function buildUI(steps) {
     return `
-      <svg id="sdb-mountain-canvas" viewBox="0 0 400 600" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+      <!-- ── 배경: 산 SVG ── -->
+      <svg id="sdb-canvas"
+           viewBox="0 0 400 600"
+           preserveAspectRatio="xMidYMid slice"
+           xmlns="http://www.w3.org/2000/svg"
+           style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;">
         <defs>
-          <linearGradient id="sdbSkyGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#87CEEB"/>
-            <stop offset="100%" stop-color="#D4EDD4"/>
+          <linearGradient id="sdbSky2" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"   stop-color="#3A87C8"/>
+            <stop offset="100%" stop-color="#A8D8EA"/>
           </linearGradient>
-          <linearGradient id="sdbMtnGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#8FA88F"/>
-            <stop offset="100%" stop-color="#5A7A5A"/>
+          <linearGradient id="sdbMtn2" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"   stop-color="#9BB8A0"/>
+            <stop offset="60%"  stop-color="#5A8C60"/>
+            <stop offset="100%" stop-color="#3D6128"/>
           </linearGradient>
+          <linearGradient id="sdbGrnd2" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"   stop-color="#6AAF40"/>
+            <stop offset="100%" stop-color="#3D7020"/>
+          </linearGradient>
+          <filter id="sdbShadow">
+            <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="rgba(0,0,0,0.3)"/>
+          </filter>
         </defs>
 
-        <rect width="400" height="600" fill="url(#sdbSkyGrad)"/>
+        <!-- 하늘 -->
+        <rect width="400" height="600" fill="url(#sdbSky2)"/>
 
-        <ellipse cx="80" cy="80" rx="50" ry="22" fill="white" opacity="0.70"/>
-        <ellipse cx="110" cy="72" rx="34" ry="18" fill="white" opacity="0.82"/>
-        <ellipse cx="310" cy="100" rx="44" ry="18" fill="white" opacity="0.62"/>
-        <ellipse cx="340" cy="93" rx="28" ry="15" fill="white" opacity="0.70"/>
+        <!-- 구름 -->
+        <ellipse cx="75"  cy="75"  rx="52" ry="22" fill="white" opacity="0.80"/>
+        <ellipse cx="108" cy="67"  rx="36" ry="19" fill="white" opacity="0.90"/>
+        <ellipse cx="60"  cy="85"  rx="28" ry="14" fill="white" opacity="0.60"/>
+        <ellipse cx="318" cy="90"  rx="46" ry="19" fill="white" opacity="0.70"/>
+        <ellipse cx="350" cy="82"  rx="30" ry="15" fill="white" opacity="0.80"/>
+        <ellipse cx="290" cy="100" rx="22" ry="10" fill="white" opacity="0.50"/>
 
-        <polygon points="200,40 30,520 370,520" fill="url(#sdbMtnGrad)"/>
-        <polygon points="200,40 175,110 225,110" fill="white" opacity="0.95"/>
-        <polygon points="200,40 200,520 370,520" fill="rgba(0,0,0,0.08)"/>
+        <!-- 산 본체 -->
+        <polygon points="200,36 15,528 385,528" fill="url(#sdbMtn2)"/>
+        <!-- 우측 음영 -->
+        <polygon points="200,36 200,528 385,528" fill="rgba(0,0,0,0.14)"/>
+        <!-- 눈 (정상) -->
+        <polygon points="200,36 165,118 235,118" fill="white" opacity="0.97"/>
+        <polygon points="200,36 178,88 222,88"  fill="white" opacity="0.65"/>
+        <!-- 눈 광택 -->
+        <polygon points="200,36 178,88 192,75"  fill="white" opacity="0.30"/>
 
-        <polygon points="60,300 0,520 150,520" fill="#4A6741" opacity="0.60"/>
-        <polygon points="340,280 250,520 400,520" fill="#4A6741" opacity="0.55"/>
+        <!-- 바위들 -->
+        <ellipse cx="140" cy="320" rx="18" ry="9" fill="#5A6A50" opacity="0.50"/>
+        <ellipse cx="260" cy="380" rx="14" ry="7" fill="#4A5A40" opacity="0.45"/>
+        <ellipse cx="160" cy="420" rx="12" ry="6" fill="#5A6A50" opacity="0.40"/>
 
-        <rect x="0" y="520" width="400" height="80" fill="#5A7A5A"/>
+        <!-- 좌측 소 언덕 -->
+        <polygon points="30,340  0,528 170,528"  fill="#3A6B2E" opacity="0.50"/>
+        <!-- 우측 소 언덕 -->
+        <polygon points="370,310 230,528 400,528" fill="#3A6B2E" opacity="0.45"/>
 
-        <polygon points="50,480 42,520 58,520" fill="#2d5a2d"/>
-        <polygon points="70,470 62,520 78,520" fill="#2d5a2d"/>
-        <polygon points="330,475 322,520 338,520" fill="#2d5a2d"/>
-        <polygon points="350,468 342,520 358,520" fill="#2d5a2d"/>
+        <!-- 지면 -->
+        <rect x="0" y="528" width="400" height="72" fill="url(#sdbGrnd2)"/>
 
-        <line x1="200" y1="40" x2="200" y2="18" stroke="#8B6914" stroke-width="2.5"/>
-        <polygon points="200,18 218,25 200,32" fill="#FF6B35"/>
+        <!-- 나무들 -->
+        <polygon points="48,492  40,528  56,528"  fill="#2A5220"/>
+        <polygon points="72,480  63,528  81,528"  fill="#2A5220"/>
+        <polygon points="95,498  88,528 102,528"  fill="#2A5220"/>
+        <polygon points="338,488 330,528 346,528" fill="#2A5220"/>
+        <polygon points="360,476 351,528 369,528" fill="#2A5220"/>
+        <polygon points="118,510 112,528 124,528" fill="#2A5220"/>
+
+        <!-- 등반로 점선 (배경) -->
+        <line x1="90" y1="490" x2="200" y2="50"
+              stroke="rgba(255,255,255,0.25)" stroke-width="2.5"
+              stroke-dasharray="6 6" stroke-linecap="round"/>
+
+        <!-- 깃발 -->
+        <line x1="200" y1="36" x2="200" y2="12"
+              stroke="#7B5E2A" stroke-width="3" stroke-linecap="round"/>
+        <polygon points="200,12 222,20 200,28" fill="#FF3333"/>
+        <polygon points="200,12 222,20 200,28" fill="rgba(255,255,255,0.3)"/>
       </svg>
 
-      <div id="sdb-step-dots"></div>
-      <div id="sdb-climber">🧗</div>
+      <!-- ── 경로 점들 ── -->
+      <div id="sdb-dots" style="position:absolute;inset:0;pointer-events:none;z-index:6;"></div>
 
-      <div class="sdb-progress">
-        <span class="sdb-progress-label">🏕️ 출발</span>
-        <div class="sdb-progress-track">
-          <div class="sdb-progress-fill" id="sdb-progress-fill"></div>
+      <!-- ── 등반가 ── -->
+      <div id="sdb-climber"
+           style="position:absolute;font-size:2.1rem;
+                  transform:translate(-50%,-100%);z-index:8;
+                  pointer-events:none;
+                  filter:drop-shadow(0 2px 5px rgba(0,0,0,.5));
+                  transition:left .65s cubic-bezier(.4,0,.2,1),
+                              top  .65s cubic-bezier(.4,0,.2,1);">🧗</div>
+
+      <!-- ── 상단 진행 바 ── -->
+      <div style="position:absolute;top:8px;left:10px;right:10px;z-index:9;
+                  display:flex;align-items:center;gap:6px;pointer-events:none;">
+        <span style="font-size:.76rem;color:#fff;font-weight:700;
+                     text-shadow:0 1px 5px rgba(0,0,0,.65);white-space:nowrap;
+                     font-family:'Noto Sans KR',sans-serif;">🏕️</span>
+        <div style="flex:1;height:7px;background:rgba(255,255,255,.28);border-radius:10px;overflow:hidden;">
+          <div id="sdb-pbar"
+               style="height:100%;width:0%;
+                      background:linear-gradient(90deg,#FFD700,#FF6B35);
+                      border-radius:10px;transition:width .55s ease;"></div>
         </div>
-        <span class="sdb-progress-label">🏔️ 정상</span>
+        <span style="font-size:.76rem;color:#fff;font-weight:700;
+                     text-shadow:0 1px 5px rgba(0,0,0,.65);white-space:nowrap;
+                     font-family:'Noto Sans KR',sans-serif;">🏔️</span>
+        <span id="sdb-step-ctr"
+              style="font-size:.8rem;color:#FFD700;font-weight:700;
+                     text-shadow:0 1px 5px rgba(0,0,0,.8);
+                     background:rgba(0,0,0,.32);border-radius:20px;
+                     padding:2px 9px;font-family:'Jua',sans-serif;
+                     white-space:nowrap;">0 / ${steps}</span>
       </div>
 
-      <div id="sdb-question-panel">
-        <div class="sdb-q-step" id="sdb-q-step">1 / ${totalSteps}번째 발걸음</div>
-        <div class="sdb-q-prompt">기약분수로 나타내세요</div>
+      <!-- ── 콤보 표시 ── -->
+      <div id="sdb-combo"
+           style="display:none;position:absolute;top:36px;left:50%;
+                  transform:translateX(-50%);z-index:9;pointer-events:none;">
+        <div style="background:rgba(230,80,0,.88);color:#fff;
+                    font-family:'Jua',sans-serif;font-size:1rem;
+                    border-radius:20px;padding:3px 14px;white-space:nowrap;
+                    box-shadow:0 2px 12px rgba(230,80,0,.55);">
+          🔥 <span id="sdb-combo-n">0</span>연속!
+        </div>
+      </div>
 
-        <div class="sdb-fraction-row">
-          <div class="sdb-frac-box">
-            <div class="sdb-frac-n" id="sdb-q-num">6</div>
-            <div class="sdb-frac-line"></div>
-            <div class="sdb-frac-d" id="sdb-q-den">8</div>
+      <!-- ── 문제 패널 ── -->
+      <div id="sdb-panel">
+        <!-- 헤더: 단계 표시 -->
+        <div style="display:flex;align-items:center;justify-content:space-between;
+                    margin-bottom:10px;">
+          <div id="sdb-step-lbl"
+               style="font-size:.82rem;color:#5A5A7A;font-weight:700;
+                      font-family:'Noto Sans KR',sans-serif;">
+            1 / ${steps}번째 발걸음
           </div>
-
-          <div class="sdb-arrow">→</div>
-
-          <div class="sdb-answer-box" id="sdb-answer-box">
-            <input class="sdb-ans-input" id="sdb-ans-num" type="number" min="1" inputmode="numeric" placeholder="?">
-            <div class="sdb-ans-line"></div>
-            <input class="sdb-ans-input" id="sdb-ans-den" type="number" min="1" inputmode="numeric" placeholder="?">
+          <div style="font-size:.76rem;color:#8888AA;
+                      font-family:'Noto Sans KR',sans-serif;">
+            기약분수로 약분하세요
           </div>
         </div>
 
+        <!-- 분수 표시 + 답 입력 -->
+        <div style="display:flex;align-items:center;justify-content:center;gap:16px;">
+
+          <!-- 문제 분수 -->
+          <div style="display:flex;flex-direction:column;align-items:center;
+                      background:#EEF2FF;border:2px solid #C7D2FE;
+                      border-radius:16px;padding:10px 22px;min-width:78px;">
+            <div id="sdb-q-num"
+                 style="font-size:1.85rem;font-weight:900;color:#1E40AF;line-height:1.1;
+                        font-family:'Noto Sans KR','Jua',sans-serif;">6</div>
+            <div style="width:46px;height:3px;background:#3B82F6;border-radius:2px;margin:5px 0;"></div>
+            <div id="sdb-q-den"
+                 style="font-size:1.85rem;font-weight:900;color:#1E40AF;line-height:1.1;
+                        font-family:'Noto Sans KR','Jua',sans-serif;">8</div>
+          </div>
+
+          <!-- 화살표 -->
+          <div style="font-size:1.7rem;color:#9CA3AF;font-weight:900;flex-shrink:0;">→</div>
+
+          <!-- 답 입력 -->
+          <div id="sdb-ans-box"
+               style="display:flex;flex-direction:column;align-items:center;
+                      background:#fff;border:2.5px solid #C7D2FE;
+                      border-radius:16px;padding:8px 18px;min-width:78px;
+                      transition:border-color .18s,background .18s;">
+            <input id="sdb-ans-num" class="sdb-inp"
+                   type="number" min="1" inputmode="numeric" placeholder="?">
+            <div style="width:46px;height:3px;background:#9CA3AF;border-radius:2px;margin:5px 0;"></div>
+            <input id="sdb-ans-den" class="sdb-inp"
+                   type="number" min="1" inputmode="numeric" placeholder="?">
+          </div>
+        </div>
+
+        <!-- 확인 버튼 -->
         <button id="sdb-check-btn">확인 ✓</button>
+
+        <!-- 피드백 메시지 -->
+        <div id="sdb-fb"
+             style="text-align:center;min-height:22px;margin-top:6px;
+                    font-size:.9rem;font-weight:700;color:#555;
+                    font-family:'Noto Sans KR',sans-serif;
+                    opacity:0;transition:opacity .2s;"></div>
       </div>
 
-      <div id="sdb-feedback-toast"></div>
+      <!-- ── 정상 도달 축하 오버레이 ── -->
+      <div id="sdb-summit"
+           style="display:none;position:absolute;inset:0;
+                  background:rgba(0,0,0,.72);z-index:50;
+                  flex-direction:column;align-items:center;justify-content:center;gap:14px;">
+        <div style="font-size:4.5rem;animation:sdbPop .45s cubic-bezier(.175,.885,.32,1.275);">🏆</div>
+        <div style="font-size:2.2rem;color:#FFD700;font-family:'Jua',sans-serif;
+                    text-shadow:0 0 24px rgba(255,215,0,.7);">정상 정복!</div>
+
+        <div style="background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.3);
+                    border-radius:18px;padding:18px 32px;display:flex;flex-direction:column;
+                    gap:10px;text-align:center;">
+          <div id="sdb-res-time"
+               style="font-size:1.15rem;color:#fff;font-family:'Noto Sans KR',sans-serif;
+                      font-weight:700;letter-spacing:.3px;">⏱ 남은 시간: -</div>
+          <div id="sdb-res-combo"
+               style="font-size:1.15rem;color:#FFD700;font-family:'Noto Sans KR',sans-serif;
+                      font-weight:700;">🔥 최고 콤보: -</div>
+        </div>
+
+        <div style="font-size:.85rem;color:rgba(255,255,255,.55);
+                    font-family:'Noto Sans KR',sans-serif;">잠시 후 결과 화면으로...</div>
+      </div>
     `;
   }
 
+  /* ══════════════════════════════════════
+     스타일 삽입
+  ══════════════════════════════════════ */
   function injectStyles() {
-    if (document.getElementById('sdb-platform-styles')) return;
-
-    const style = document.createElement('style');
-    style.id = 'sdb-platform-styles';
-    style.textContent = `
-      #sdb-mountain-canvas {
+    if (document.getElementById('sdb-styles')) return;
+    const s = document.createElement('style');
+    s.id = 'sdb-styles';
+    s.textContent = `
+      /* 경로 점 */
+      .sdb-dot {
         position: absolute;
-        inset: 0;
-        width: 100%;
-        height: 100%;
-      }
-
-      #sdb-step-dots {
-        position: absolute;
-        inset: 0;
-        z-index: 5;
-        pointer-events: none;
-      }
-
-      .sdb-step-dot {
-        position: absolute;
-        width: 14px;
-        height: 14px;
+        width: 13px; height: 13px;
         border-radius: 50%;
-        border: 2px solid #fff;
-        box-shadow: 0 2px 6px rgba(0,0,0,.3);
+        border: 2.5px solid rgba(255,255,255,.9);
+        box-shadow: 0 2px 7px rgba(0,0,0,.38);
         transform: translate(-50%, -50%);
-        transition: background .3s, transform .2s, width .2s, height .2s;
+        transition: background .25s, width .2s, height .2s;
       }
-
-      .sdb-step-dot.done {
-        background: #FFD700;
+      .sdb-dot.done     { background: #FFD700; }
+      .sdb-dot.current  {
+        background: #FF6B35; width: 17px; height: 17px;
+        animation: sdbPulse 1s ease-in-out infinite;
       }
+      .sdb-dot.upcoming { background: rgba(255,255,255,.5); }
 
-      .sdb-step-dot.current {
-        background: #FF6B35;
-        width: 18px;
-        height: 18px;
-        animation: sdbDotPulse 1s infinite;
+      @keyframes sdbPulse {
+        0%,100% { box-shadow: 0 0 0 0 rgba(255,107,53,.65); }
+        50%      { box-shadow: 0 0 0 8px rgba(255,107,53,0); }
       }
-
-      .sdb-step-dot.upcoming {
-        background: rgba(255,255,255,.55);
+      @keyframes sdbPop {
+        from { transform: scale(1.7); opacity: 0; }
+        to   { transform: scale(1);   opacity: 1; }
       }
-
-      @keyframes sdbDotPulse {
-        0%, 100% { box-shadow: 0 0 0 0 rgba(255,107,53,.6); }
-        50% { box-shadow: 0 0 0 8px rgba(255,107,53,0); }
-      }
-
-      #sdb-climber {
-        position: absolute;
-        font-size: 2rem;
-        transform: translate(-50%, -100%);
-        transition: left .7s cubic-bezier(.4,0,.2,1), top .7s cubic-bezier(.4,0,.2,1);
-        z-index: 8;
-        filter: drop-shadow(0 2px 4px rgba(0,0,0,.4));
-        pointer-events: none;
-      }
-
-      .sdb-progress {
-        position: absolute;
-        left: 12px;
-        right: 12px;
-        bottom: 218px;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        z-index: 9;
-        pointer-events: none;
-      }
-
-      .sdb-progress-label {
-        font-size: .75rem;
-        font-weight: 700;
-        color: #fff;
-        text-shadow: 0 1px 4px rgba(0,0,0,.55);
-        white-space: nowrap;
-        font-family: 'Noto Sans KR', sans-serif;
-      }
-
-      .sdb-progress-track {
-        flex: 1;
-        height: 8px;
-        background: rgba(255,255,255,.35);
-        border-radius: 10px;
-        overflow: hidden;
-      }
-
-      .sdb-progress-fill {
-        width: 0%;
-        height: 100%;
-        background: linear-gradient(90deg,#FFD700,#FF6B35);
-        border-radius: 10px;
-        transition: width .6s ease;
-      }
-
-      #sdb-question-panel {
-        position: absolute;
-        left: 12px;
-        right: 12px;
-        bottom: 16px;
-        background: rgba(255,255,255,.93);
-        border: 1px solid rgba(255,255,255,.5);
-        border-radius: 24px;
-        padding: 18px 20px 14px;
-        box-shadow: 0 -2px 30px rgba(0,0,0,.10), 0 4px 20px rgba(0,0,0,.12);
-        z-index: 10;
-        font-family: 'Noto Sans KR', 'Jua', sans-serif;
-      }
-
-      .sdb-q-step {
-        font-size: .8rem;
-        color: #777;
-        font-weight: 700;
-        text-align: center;
-        margin-bottom: 5px;
-      }
-
-      .sdb-q-prompt {
-        font-size: .95rem;
-        color: #555;
-        text-align: center;
-        margin-bottom: 12px;
-        font-weight: 700;
-      }
-
-      .sdb-fraction-row {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 16px;
-      }
-
-      .sdb-frac-box {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        background: #f0f4ff;
-        border: 1px solid #dde3ff;
-        border-radius: 14px;
-        padding: 10px 18px;
-      }
-
-      .sdb-frac-n,
-      .sdb-frac-d {
-        font-size: 1.65rem;
-        font-weight: 900;
-        color: #2C3E50;
-        line-height: 1.1;
-      }
-
-      .sdb-frac-line {
-        width: 50px;
-        height: 3px;
-        background: #2C3E50;
-        border-radius: 2px;
-        margin: 4px 0;
-      }
-
-      .sdb-arrow {
-        font-size: 1.4rem;
-        color: #999;
-        font-weight: 900;
-      }
-
-      .sdb-answer-box {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        background: #fff;
-        border: 2px solid #dde3ff;
-        border-radius: 14px;
-        padding: 8px 14px;
-        transition: border-color .2s, background .2s;
-      }
-
-      .sdb-answer-box.correct-flash {
-        border-color: #2ECC71;
-        background: #f0fff7;
-      }
-
-      .sdb-answer-box.wrong-flash {
-        border-color: #e74c3c;
-        background: #fff5f5;
-        animation: sdbShake .3s;
-      }
-
       @keyframes sdbShake {
-        0%, 100% { transform: translateX(0); }
-        25% { transform: translateX(-6px); }
-        75% { transform: translateX(6px); }
+        0%,100% { transform: translateX(0); }
+        25%     { transform: translateX(-7px); }
+        75%     { transform: translateX(7px); }
       }
 
-      .sdb-ans-input {
-        width: 64px;
-        text-align: center;
-        border: none;
-        outline: none;
-        font-size: 1.65rem;
-        font-weight: 900;
-        font-family: 'Noto Sans KR', 'Jua', sans-serif;
-        color: #2C3E50;
-        background: transparent;
-      }
-
-      .sdb-ans-line {
-        width: 50px;
-        height: 3px;
-        background: #bbb;
-        border-radius: 2px;
-        margin: 4px 0;
-      }
-
-      .sdb-ans-input::-webkit-inner-spin-button,
-      .sdb-ans-input::-webkit-outer-spin-button {
-        -webkit-appearance: none;
-        margin: 0;
-      }
-
-      .sdb-ans-input {
-        -moz-appearance: textfield;
-      }
-
-      #sdb-check-btn {
-        margin-top: 14px;
-        width: 100%;
-        background: linear-gradient(135deg, #5B6EF5, #7B8EFF);
-        border: none;
-        border-radius: 50px;
-        padding: 14px;
-        font-size: 1.1rem;
-        font-weight: 900;
-        font-family: 'Noto Sans KR', 'Jua', sans-serif;
-        color: #fff;
-        cursor: pointer;
-        box-shadow: 0 4px 14px rgba(91,110,245,.35);
-        transition: transform .12s, box-shadow .12s;
-        min-height: 48px;
-      }
-
-      #sdb-check-btn:active {
-        transform: scale(.97);
-        box-shadow: 0 2px 6px rgba(91,110,245,.3);
-      }
-
-      #sdb-feedback-toast {
+      /* 문제 패널 */
+      #sdb-panel {
         position: absolute;
-        top: 16px;
-        left: 50%;
-        transform: translateX(-50%) scale(0);
-        opacity: 0;
-        background: #2ECC71;
-        color: #fff;
-        font-size: 1.25rem;
-        font-weight: 900;
-        padding: 10px 24px;
-        border-radius: 50px;
-        z-index: 20;
-        pointer-events: none;
-        font-family: 'Noto Sans KR', 'Jua', sans-serif;
-        white-space: nowrap;
-        box-shadow: 0 4px 20px rgba(46,204,113,.5);
-        transition: transform .2s cubic-bezier(.175,.885,.32,1.275), opacity .25s;
+        left: 10px; right: 10px; bottom: 10px;
+        background: rgba(255,255,255,.96);
+        border: 1px solid rgba(180,180,255,.45);
+        border-radius: 24px;
+        padding: 16px 18px 12px;
+        box-shadow: 0 -2px 20px rgba(0,0,0,.10), 0 6px 20px rgba(0,0,0,.08);
+        z-index: 10;
       }
 
-      #sdb-feedback-toast.wrong {
-        background: #e74c3c;
-        box-shadow: 0 4px 20px rgba(231,76,60,.5);
+      /* 숫자 입력 */
+      .sdb-inp {
+        width: 62px; text-align: center;
+        border: none; outline: none;
+        font-size: 1.85rem; font-weight: 900;
+        font-family: 'Noto Sans KR','Jua', sans-serif;
+        color: #1E3A8A; background: transparent;
       }
+      .sdb-inp::-webkit-inner-spin-button,
+      .sdb-inp::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+      .sdb-inp { -moz-appearance: textfield; }
 
-      @media (max-height: 650px) {
-        .sdb-progress {
-          bottom: 196px;
-        }
+      /* 확인 버튼 */
+      #sdb-check-btn {
+        margin-top: 13px; width: 100%;
+        background: linear-gradient(135deg, #4F46E5, #7C3AED);
+        border: none; border-radius: 50px;
+        padding: 13px; font-size: 1.1rem; font-weight: 900;
+        font-family: 'Noto Sans KR','Jua',sans-serif;
+        color: #fff; cursor: pointer;
+        box-shadow: 0 4px 14px rgba(79,70,229,.4);
+        transition: transform .1s, box-shadow .1s;
+        min-height: 46px;
+      }
+      #sdb-check-btn:active { transform: scale(.97); box-shadow: 0 2px 6px rgba(79,70,229,.25); }
 
-        #sdb-question-panel {
-          padding: 14px 16px 12px;
-        }
+      /* 정답 / 오답 플래시 */
+      #sdb-ans-box.ok { border-color: #10B981 !important; background: #F0FDF4 !important; }
+      #sdb-ans-box.ng {
+        border-color: #EF4444 !important; background: #FFF5F5 !important;
+        animation: sdbShake .32s ease;
+      }
+      #sdb-fb.ok { color: #047857; }
+      #sdb-fb.ng { color: #B91C1C; }
 
-        .sdb-q-prompt {
-          margin-bottom: 8px;
-        }
-
-        #sdb-check-btn {
-          padding: 11px;
-          min-height: 42px;
-          margin-top: 10px;
-        }
-
-        .sdb-frac-n,
-        .sdb-frac-d,
-        .sdb-ans-input {
-          font-size: 1.45rem;
-        }
+      /* 작은 화면 대응 */
+      @media (max-height: 640px) {
+        #sdb-panel  { padding: 12px 14px 10px; bottom: 8px; }
+        .sdb-inp, #sdb-q-num, #sdb-q-den { font-size: 1.5rem !important; }
+        #sdb-check-btn { padding: 10px; min-height: 40px; font-size: 1rem; margin-top: 9px; }
       }
     `;
-
-    document.head.appendChild(style);
+    document.head.appendChild(s);
   }
 
+  /* ══════════════════════════════════════
+     이벤트 바인딩
+  ══════════════════════════════════════ */
   function bindEvents() {
     checkBtn = document.getElementById('sdb-check-btn');
     checkBtn?.addEventListener('click', checkAnswer);
@@ -508,300 +457,303 @@
     const numEl = document.getElementById('sdb-ans-num');
     const denEl = document.getElementById('sdb-ans-den');
 
-    numEl?.addEventListener('keydown', handleInputKey);
-    denEl?.addEventListener('keydown', handleInputKey);
+    /* Enter: 분자 → 분모 → 확인 */
+    numEl?.addEventListener('keydown', e => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault(); denEl?.focus();
+    });
+    denEl?.addEventListener('keydown', e => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault(); checkAnswer();
+    });
 
     keyHandler = e => {
-      if (e.key !== 'Enter') return;
-      if (!cfg?.boardEl?.contains(document.activeElement)) return;
-      e.preventDefault();
-
-      if (document.activeElement === numEl) {
-        denEl?.focus();
-      } else {
-        checkAnswer();
-      }
+      if (e.key !== 'Enter' || isGameOver) return;
+      const active = document.activeElement;
+      if (active === numEl)      { e.preventDefault(); denEl?.focus(); }
+      else if (active === denEl) { e.preventDefault(); checkAnswer(); }
     };
-
     document.addEventListener('keydown', keyHandler);
   }
 
   function unbindEvents() {
     checkBtn?.removeEventListener('click', checkAnswer);
-
-    const numEl = document.getElementById('sdb-ans-num');
-    const denEl = document.getElementById('sdb-ans-den');
-
-    numEl?.removeEventListener('keydown', handleInputKey);
-    denEl?.removeEventListener('keydown', handleInputKey);
-
-    if (keyHandler) {
-      document.removeEventListener('keydown', keyHandler);
-      keyHandler = null;
-    }
-
+    if (keyHandler) { document.removeEventListener('keydown', keyHandler); keyHandler = null; }
     checkBtn = null;
   }
 
-  function handleInputKey(e) {
-    if (e.key !== 'Enter') return;
-
-    e.preventDefault();
-
-    const numEl = document.getElementById('sdb-ans-num');
-    const denEl = document.getElementById('sdb-ans-den');
-
-    if (document.activeElement === numEl) {
-      denEl?.focus();
-    } else {
-      checkAnswer();
-    }
-  }
-
+  /* ══════════════════════════════════════
+     문제 표시
+  ══════════════════════════════════════ */
   function showQuestion(idx) {
     const q = questions[idx];
     if (!q) return;
 
-    const stepEl = document.getElementById('sdb-q-step');
-    const qNumEl = document.getElementById('sdb-q-num');
-    const qDenEl = document.getElementById('sdb-q-den');
+    const lbl  = document.getElementById('sdb-step-lbl');
+    const qNum = document.getElementById('sdb-q-num');
+    const qDen = document.getElementById('sdb-q-den');
 
-    if (stepEl) stepEl.textContent = `${idx + 1} / ${totalSteps}번째 발걸음`;
-    if (qNumEl) qNumEl.textContent = q.num;
-    if (qDenEl) qDenEl.textContent = q.den;
+    if (lbl)  lbl.textContent  = `${idx + 1} / ${totalSteps}번째 발걸음`;
+    if (qNum) qNum.textContent = q.num;
+    if (qDen) qDen.textContent = q.den;
 
     clearInputs();
     clearFlash();
-
     setTimeout(() => document.getElementById('sdb-ans-num')?.focus(), 80);
   }
 
+  /* ══════════════════════════════════════
+     답 확인
+  ══════════════════════════════════════ */
   function checkAnswer() {
-    if (!cfg?.isActive?.()) return;
+    if (!cfg?.isActive?.() || isGameOver) return;
     if (currentStep >= totalSteps) return;
 
-    const q = questions[currentStep];
+    const q    = questions[currentStep];
     if (!q) return;
 
     const numEl = document.getElementById('sdb-ans-num');
     const denEl = document.getElementById('sdb-ans-den');
+    const uN    = parseInt(numEl?.value, 10);
+    const uD    = parseInt(denEl?.value, 10);
 
-    const userNum = parseInt(numEl?.value, 10);
-    const userDen = parseInt(denEl?.value, 10);
-
-    if (!Number.isFinite(userNum) || !Number.isFinite(userDen) || userNum < 1 || userDen < 1) {
-      numEl?.focus();
-      return;
+    /* 입력 검증 */
+    if (!Number.isFinite(uN) || !Number.isFinite(uD) || uN < 1 || uD < 1) {
+      numEl?.focus(); return;
     }
 
-    const isReduced = gcd(userNum, userDen) === 1;
-    const isEquivalent = userNum * q.den === userDen * q.num;
+    const isReduced    = gcd(uN, uD) === 1;          // 기약분수 여부
+    const isEquivalent = uN * q.den === uD * q.num;  // 크기 동등 여부
 
     if (isReduced && isEquivalent) {
+      /* ── 정답 ── */
       localCombo++;
+      if (localCombo > maxCombo) maxCombo = localCombo;
+
+      updateComboUI();
       flashBox(true);
+      showFeedback(localCombo >= 3 ? `🔥 ${localCombo}연속 정답!` : '⭕ 정답!', true);
+
       cfg.onCorrect?.();
+      cfg.onBoardStart?.();
 
       currentStep++;
       updateDots(currentStep);
       updateClimber(currentStep, false);
       updateProgressBar(currentStep);
 
-      showToast(localCombo >= 3 ? `🔥 ${localCombo}연속!` : '⭕ 정답!', false);
-
       if (currentStep >= totalSteps) {
-        showToast('🏆 정상 등반!', false);
-        setTimeout(() => {
-          cfg?.onComplete?.();
-        }, 700);
+        /* 정상 도달! */
+        isGameOver = true;
+        setTimeout(showSummit, 650);
       } else {
-        cfg.onBoardStart?.();
-        setTimeout(() => showQuestion(currentStep), 360);
+        setTimeout(() => showQuestion(currentStep), 340);
       }
+
     } else {
+      /* ── 오답 ── */
       localCombo = 0;
-      wrongCount++;
+      updateComboUI();
       flashBox(false);
+
+      const msg = !isEquivalent
+        ? '❌ 크기가 달라요! 다시 도전!'
+        : '❌ 기약분수가 아니에요!';
+      showFeedback(msg, false);
       cfg.onWrong?.();
 
-      showToast(!isEquivalent ? '❌ 크기가 달라요!' : '❌ 기약분수가 아니에요!', true);
-
-      setTimeout(() => {
-        clearInputs();
-        clearFlash();
-        numEl?.focus();
-      }, 420);
+      setTimeout(() => { clearInputs(); clearFlash(); document.getElementById('sdb-ans-num')?.focus(); }, 420);
     }
   }
 
-  function clearInputs() {
-    const numEl = document.getElementById('sdb-ans-num');
-    const denEl = document.getElementById('sdb-ans-den');
+  /* ══════════════════════════════════════
+     정상 도달 축하 화면
+  ══════════════════════════════════════ */
+  function showSummit() {
+    const overlay = document.getElementById('sdb-summit');
+    if (!overlay) return;
 
-    if (numEl) numEl.value = '';
-    if (denEl) denEl.value = '';
+    /* 남은 시간 표시 (index.html에서 getTimeLeft 콜백을 전달받아야 함) */
+    const tLeft = (typeof cfg?.getTimeLeft === 'function') ? cfg.getTimeLeft() : null;
+    const timeStr = (typeof tLeft === 'number' && tLeft >= 0)
+      ? `${tLeft}초`
+      : '—';
+
+    const resTime  = document.getElementById('sdb-res-time');
+    const resCombo = document.getElementById('sdb-res-combo');
+    if (resTime)  resTime.textContent  = `⏱ 남은 시간: ${timeStr}`;
+    if (resCombo) resCombo.textContent = `🔥 최고 콤보: ${maxCombo}연속`;
+
+    overlay.style.display = 'flex';
+
+    /* 2.2초 후 결과 화면으로 */
+    celebTimer = setTimeout(() => {
+      if (cfg) cfg.onComplete?.();
+    }, 2200);
+  }
+
+  /* ══════════════════════════════════════
+     UI 업데이트 헬퍼
+  ══════════════════════════════════════ */
+  function clearInputs() {
+    const n = document.getElementById('sdb-ans-num');
+    const d = document.getElementById('sdb-ans-den');
+    if (n) n.value = '';
+    if (d) d.value = '';
   }
 
   function flashBox(ok) {
-    const box = document.getElementById('sdb-answer-box');
+    const box = document.getElementById('sdb-ans-box');
     if (!box) return;
-
-    box.classList.remove('correct-flash', 'wrong-flash');
-    void box.offsetWidth;
-    box.classList.add(ok ? 'correct-flash' : 'wrong-flash');
+    box.classList.remove('ok', 'ng');
+    void box.offsetWidth; // reflow
+    box.classList.add(ok ? 'ok' : 'ng');
   }
 
   function clearFlash() {
-    const box = document.getElementById('sdb-answer-box');
-    if (!box) return;
-
-    box.classList.remove('correct-flash', 'wrong-flash');
+    document.getElementById('sdb-ans-box')?.classList.remove('ok', 'ng');
+    const fb = document.getElementById('sdb-fb');
+    if (fb) { fb.style.opacity = '0'; fb.className = ''; }
   }
 
-  function showToast(message, isWrong) {
-    const toast = document.getElementById('sdb-feedback-toast');
-    if (!toast) return;
-
-    toast.textContent = message;
-    toast.className = isWrong ? 'wrong' : '';
-
+  function showFeedback(msg, ok) {
+    const fb = document.getElementById('sdb-fb');
+    if (!fb) return;
+    fb.textContent   = msg;
+    fb.className     = ok ? 'ok' : 'ng';
+    fb.style.opacity = '1';
     clearTimeout(toastTimer);
-
-    requestAnimationFrame(() => {
-      toast.style.transform = 'translateX(-50%) scale(1)';
-      toast.style.opacity = '1';
-
-      toastTimer = setTimeout(() => {
-        toast.style.transform = 'translateX(-50%) scale(.8)';
-        toast.style.opacity = '0';
-      }, 720);
-    });
+    toastTimer = setTimeout(() => { if (fb) fb.style.opacity = '0'; }, 1300);
   }
 
+  function updateComboUI() {
+    const wrap = document.getElementById('sdb-combo');
+    const num  = document.getElementById('sdb-combo-n');
+    if (!wrap || !num) return;
+    if (localCombo >= 2) {
+      num.textContent     = localCombo;
+      wrap.style.display  = 'block';
+    } else {
+      wrap.style.display = 'none';
+    }
+  }
+
+  function updateProgressBar(step) {
+    const bar = document.getElementById('sdb-pbar');
+    if (bar) bar.style.width = `${(step / totalSteps) * 100}%`;
+    const ctr = document.getElementById('sdb-step-ctr');
+    if (ctr) ctr.textContent = `${step} / ${totalSteps}`;
+  }
+
+  /* ══════════════════════════════════════
+     경로 계산 (산 왼쪽 사면을 따라 정상까지)
+  ══════════════════════════════════════ */
   function getMountainPath(n) {
+    const startX = 88,  startY = 488;  // 왼쪽 기슭 (SVG 좌표)
+    const endX   = 200, endY   = 50;   // 정상 근처 (SVG 좌표)
     const pts = [];
 
     for (let i = 0; i <= n; i++) {
-      const t = i / n;
-      const xBase = 200 + (t < 0.5 ? (0.5 - t) * 60 : (t - 0.5) * -40);
-      const x = xBase + Math.sin(t * Math.PI * 3) * 12;
-      const y = 88 - t * 78;
-      pts.push({ x: (x / 400) * 100, y });
+      const t     = i / n;
+      const baseX = startX + (endX - startX) * t;
+      const baseY = startY + (endY - startY) * t;
+      /* 지그재그: 정상 근처에서는 폭 줄임 */
+      const zigzag = Math.sin(t * Math.PI * 4) * 16 * (1 - t * 0.65);
+      pts.push({
+        x: ((baseX + zigzag) / 400) * 100,  // CSS %
+        y: (baseY             / 600) * 100,  // CSS %
+      });
     }
-
     return pts;
   }
 
+  /* ══════════════════════════════════════
+     경로 점 렌더링 + 업데이트
+  ══════════════════════════════════════ */
   function renderStepDots() {
-    const container = document.getElementById('sdb-step-dots');
+    const container = document.getElementById('sdb-dots');
     if (!container) return;
-
     container.innerHTML = '';
 
     for (let i = 1; i <= totalSteps; i++) {
       const p = pathPoints[i];
       if (!p) continue;
-
       const dot = document.createElement('div');
-      dot.className = 'sdb-step-dot upcoming';
-      dot.id = `sdb-dot-${i}`;
+      dot.className = 'sdb-dot upcoming';
+      dot.id        = `sdb-d-${i}`;
       dot.style.left = p.x + '%';
-      dot.style.top = p.y + '%';
+      dot.style.top  = p.y + '%';
       container.appendChild(dot);
     }
   }
 
   function updateDots(step) {
     for (let i = 1; i <= totalSteps; i++) {
-      const dot = document.getElementById(`sdb-dot-${i}`);
+      const dot = document.getElementById(`sdb-d-${i}`);
       if (!dot) continue;
-
-      if (i < step) {
-        dot.className = 'sdb-step-dot done';
-      } else if (i === step) {
-        dot.className = 'sdb-step-dot current';
-      } else {
-        dot.className = 'sdb-step-dot upcoming';
-      }
+      if      (i <  step + 1) dot.className = 'sdb-dot done';
+      else if (i === step + 1) dot.className = 'sdb-dot current';
+      else                     dot.className = 'sdb-dot upcoming';
     }
   }
 
+  /* ══════════════════════════════════════
+     등반가 이동
+  ══════════════════════════════════════ */
   function updateClimber(step, instant) {
-    const climber = document.getElementById('sdb-climber');
-    if (!climber) return;
-
+    const el = document.getElementById('sdb-climber');
+    if (!el) return;
     const p = pathPoints[Math.min(step, totalSteps)];
     if (!p) return;
 
     if (instant) {
-      climber.style.transition = 'none';
-      climber.style.left = p.x + '%';
-      climber.style.top = p.y + '%';
-
-      requestAnimationFrame(() => {
-        climber.style.transition = '';
-      });
+      el.style.transition = 'none';
+      el.style.left = p.x + '%';
+      el.style.top  = p.y + '%';
+      requestAnimationFrame(() => { el.style.transition = ''; });
     } else {
-      climber.style.left = p.x + '%';
-      climber.style.top = p.y + '%';
+      el.style.left = p.x + '%';
+      el.style.top  = p.y + '%';
     }
   }
 
-  function updateProgressBar(step) {
-    const fill = document.getElementById('sdb-progress-fill');
-    if (!fill) return;
-
-    fill.style.width = (step / totalSteps * 100) + '%';
-  }
-
+  /* ══════════════════════════════════════
+     수학 유틸리티
+  ══════════════════════════════════════ */
   function gcd(a, b) {
-    a = Math.abs(a);
-    b = Math.abs(b);
+    a = Math.abs(a); b = Math.abs(b);
     return b === 0 ? a : gcd(b, a % b);
   }
 
   function genFraction(maxDen) {
-    let tries = 0;
-
-    while (tries++ < 200) {
+    for (let t = 0; t < 300; t++) {
       const den = Math.floor(Math.random() * (maxDen - 3)) + 4;
       const num = Math.floor(Math.random() * (den - 1)) + 1;
-      const g = gcd(num, den);
-
-      if (g > 1) {
-        return { num, den, ansNum: num / g, ansDen: den / g };
-      }
+      const g   = gcd(num, den);
+      if (g > 1) return { num, den, ansNum: num / g, ansDen: den / g };
     }
-
-    return { num: 6, den: 8, ansNum: 3, ansDen: 4 };
+    return { num: 6, den: 8, ansNum: 3, ansDen: 4 }; // fallback
   }
 
   function genQuestions(count, maxDen) {
-    const seen = new Set();
-    const qs = [];
-    let tries = 0;
-
-    while (qs.length < count && tries++ < 800) {
-      const f = genFraction(maxDen);
+    const seen = new Set(), qs = [];
+    for (let t = 0; qs.length < count && t < 1200; t++) {
+      const f   = genFraction(maxDen);
       const key = `${f.num}/${f.den}`;
-
       if (seen.has(key)) continue;
-
       seen.add(key);
       qs.push(f);
     }
-
     return shuffle(qs);
   }
 
   function shuffle(arr) {
-    const copy = [...arr];
-
-    for (let i = copy.length - 1; i > 0; i--) {
+    const a = [...arr];
+    for (let i = a.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
-      [copy[i], copy[j]] = [copy[j], copy[i]];
+      [a[i], a[j]] = [a[j], a[i]];
     }
-
-    return copy;
+    return a;
   }
+
 })();
