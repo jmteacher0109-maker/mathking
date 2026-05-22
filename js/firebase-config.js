@@ -16,7 +16,6 @@ const firebaseConfig = {
   messagingSenderId: "123456789",
   appId:             "1:123456789:web:abcdef"
 };
-};
 
 // Firebase 초기화
 firebase.initializeApp(firebaseConfig);
