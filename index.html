@@ -660,18 +660,19 @@ async function startSolo(){
   if(!CurrentGame){ toast('게임 모듈을 찾을 수 없습니다'); return; }
 
   CurrentGame.init({
-    boardEl:    document.getElementById('game-board'),
-    svgEl:      document.getElementById('game-svg'),
-    dotsEl:     document.getElementById('game-dots'),
-    onCorrect:  cbCorrect,
-    onWrong:    cbWrong,
-    onUndo:     cbUndo,
+    boardEl:      document.getElementById('game-board'),
+    svgEl:        document.getElementById('game-svg'),
+    dotsEl:       document.getElementById('game-dots'),
+    onCorrect:    cbCorrect,
+    onWrong:      cbWrong,
+    onUndo:       cbUndo,
     onBoardStart: cbBoardStart,
-    onComplete: ()=>{ clearInterval(timerIv); endGame(); },
-    isActive:   ()=> timeLeft > 0,
-    options:    { ...curGameOptions },
-    hideFooter: ()=> document.getElementById('game-foot').style.display = 'none',
-    showFooter: ()=> document.getElementById('game-foot').style.display = 'flex',
+    onComplete:   ()=>{ clearInterval(timerIv); endGame(); },
+    isActive:     ()=> timeLeft > 0,
+    getTimeLeft:  ()=> timeLeft,   // ★ 산 등반 게임: 정상 도달 시 남은 시간 표시용
+    options:      { ...curGameOptions },
+    hideFooter:   ()=> document.getElementById('game-foot').style.display = 'none',
+    showFooter:   ()=> document.getElementById('game-foot').style.display = 'flex',
   });
 
   const dur = curGameOptions.duration || CurrentGame.duration || 60;
@@ -846,18 +847,19 @@ async function startMulti(room){
   if(!CurrentGame){ toast('게임 모듈을 찾을 수 없습니다'); return; }
 
   CurrentGame.init({
-    boardEl:    document.getElementById('game-board'),
-    svgEl:      document.getElementById('game-svg'),
-    dotsEl:     document.getElementById('game-dots'),
-    onCorrect:  cbCorrect,
-    onWrong:    cbWrong,
-    onUndo:     cbUndo,
+    boardEl:      document.getElementById('game-board'),
+    svgEl:        document.getElementById('game-svg'),
+    dotsEl:       document.getElementById('game-dots'),
+    onCorrect:    cbCorrect,
+    onWrong:      cbWrong,
+    onUndo:       cbUndo,
     onBoardStart: cbBoardStart,
-    onComplete: ()=>{ clearInterval(timerIv); endGame(); },
-    isActive:   ()=> timeLeft > 0,
-    options:    { ...curGameOptions },
-    hideFooter: ()=> document.getElementById('game-foot').style.display = 'none',
-    showFooter: ()=> document.getElementById('game-foot').style.display = 'flex',
+    onComplete:   ()=>{ clearInterval(timerIv); endGame(); },
+    isActive:     ()=> timeLeft > 0,
+    getTimeLeft:  ()=> timeLeft,   // ★ 산 등반 게임: 정상 도달 시 남은 시간 표시용
+    options:      { ...curGameOptions },
+    hideFooter:   ()=> document.getElementById('game-foot').style.display = 'none',
+    showFooter:   ()=> document.getElementById('game-foot').style.display = 'flex',
   });
 
   const multiDur = room.options?.duration || curGameOptions.duration || 60;
