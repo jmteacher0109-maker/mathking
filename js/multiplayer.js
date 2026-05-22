@@ -38,6 +38,10 @@ async function createRoom(gameId) {
   const user = getUser();
   if (!user) throw new Error("로그인이 필요합니다.");
 
+  if (!FIREBASE_READY || !db) {
+    throw new Error("Firebase가 설정되지 않았습니다.\nfirebase-config.js에 프로젝트 정보를 입력해주세요.");
+  }
+
   const game = getGame(gameId);
   if (!game) throw new Error("게임을 찾을 수 없습니다.");
 
@@ -88,6 +92,10 @@ async function createRoom(gameId) {
 async function joinRoom(code) {
   const user = getUser();
   if (!user) throw new Error("로그인이 필요합니다.");
+
+  if (!FIREBASE_READY || !db) {
+    throw new Error("Firebase가 설정되지 않았습니다.\nfirebase-config.js에 프로젝트 정보를 입력해주세요.");
+  }
 
   code = code.toUpperCase().trim();
   const snap = await db.ref(`rooms/${code}`).get();
@@ -233,7 +241,7 @@ function startCountdownUI(serverTimestamp, onComplete) {
 // ────────────────────────────────────────
 async function saveRanking(gameId, score) {
   const user = getUser();
-  if (!user) return;
+  if (!user || !FIREBASE_READY || !db) return false;
 
   const rankRef = db.ref(`rankings/${gameId}/${user.id}`);
   const snap    = await rankRef.get();
@@ -253,6 +261,7 @@ async function saveRanking(gameId, score) {
 //  랭킹 조회 (상위 N명)
 // ────────────────────────────────────────
 async function fetchRanking(gameId, limit = 15) {
+  if (!FIREBASE_READY || !db) return [];
   const snap = await db.ref(`rankings/${gameId}`)
     .orderByChild("bestScore")
     .limitToLast(limit)
@@ -271,6 +280,7 @@ async function fetchRanking(gameId, limit = 15) {
 //  랭킹 실시간 구독
 // ────────────────────────────────────────
 function subscribeToRanking(gameId, limit = 15, cb) {
+  if (!FIREBASE_READY || !db) { cb([]); return; }
   const ref = db.ref(`rankings/${gameId}`)
     .orderByChild("bestScore")
     .limitToLast(limit);
