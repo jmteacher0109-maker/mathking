@@ -1,1160 +1,188 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>킹수학 👑</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>수학 놀이터 🧮</title>
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- Firebase SDK (compat v10) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Jua&family=Noto+Sans+KR:wght@400;700&display=swap" rel="stylesheet">
-  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-
-  <!--
-    ★ 배포 시 게임 파일은 반드시 games/ 하위 폴더에 위치해야 합니다.
-       games/tongbun.js
-       games/sandeunban.js
-    ★ 아래 사전로드 태그는 "있으면 미리 로드" 용도이며, 없어도 동적 로드로 대체됩니다.
-  -->
-  <script src="games/tongbun.js"    data-game="games/tongbun.js"    onerror="console.warn('tongbun.js 사전로드 실패 – 동적 로드로 대체됩니다')"></script>
-  <script src="games/sandeunban.js" data-game="games/sandeunban.js" onerror="console.warn('sandeunban.js 사전로드 실패 – 동적 로드로 대체됩니다')"></script>
-
-  <style>
-    /* ─────────── 전역 변수 ─────────── */
-    :root{
-      --bg:#0d1117;--bg2:#161b22;--bg3:#1c2128;--border:#30363d;
-      --text:#e6edf3;--dim:#8b949e;--accent:#FFD93D;
-      --purple:#7c3aed;--purpleL:#a78bfa;--cyan:#22d3ee;
-      --green:#34d399;--red:#f87171;
-    }
-    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
-    body{background:var(--bg);color:var(--text);font-family:'Jua','Noto Sans KR',sans-serif;
-         height:100dvh;overflow:hidden;user-select:none;-webkit-user-select:none;touch-action:manipulation;}
-    .screen{display:none;position:fixed;inset:0;background:var(--bg);z-index:10;
-            flex-direction:column;align-items:center;overflow:hidden;}
-    .screen.active{display:flex;}
-
-    /* ─────────── 공통 헤더 ─────────── */
-    .app-hdr{width:100%;height:54px;background:var(--bg2);border-bottom:1px solid var(--border);
-             display:flex;align-items:center;padding:0 12px;gap:8px;flex-shrink:0;}
-    .back-btn{width:36px;height:36px;background:var(--bg3);border:1px solid var(--border);
-              border-radius:8px;color:var(--dim);font-size:1rem;cursor:pointer;
-              display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0;}
-    .back-btn:hover{background:var(--border);color:var(--text);}
-    .hdr-title{flex:1;font-size:1.15rem;color:var(--accent);text-align:center;}
-    .user-pill{background:var(--bg3);border:1px solid var(--border);border-radius:20px;
-               padding:4px 12px;font-size:.78rem;color:var(--dim);
-               white-space:nowrap;max-width:100px;overflow:hidden;text-overflow:ellipsis;}
-
-    /* ─────────── 공통 버튼 ─────────── */
-    .btn-p{width:100%;padding:14px;background:var(--purple);color:#fff;border:none;
-           border-radius:12px;font-size:1.2rem;font-family:'Jua',sans-serif;cursor:pointer;
-           box-shadow:0 4px 0 #5b21b6;transition:transform .1s,box-shadow .1s;}
-    .btn-p:active{transform:translateY(4px);box-shadow:none;}
-    .btn-p:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:0 4px 0 #5b21b6;}
-    .btn-ghost{width:100%;padding:11px;background:var(--bg3);color:var(--text);
-               border:1px solid var(--border);border-radius:12px;font-size:1rem;
-               font-family:'Jua',sans-serif;cursor:pointer;transition:all .15s;}
-    .btn-ghost:hover{border-color:var(--dim);}
-
-    /* ─────────── 로그인 ─────────── */
-    #sc-login{justify-content:center;padding:20px;}
-    .login-box{width:100%;max-width:400px;background:var(--bg2);border:1px solid var(--border);
-               border-radius:20px;padding:32px 28px;display:flex;flex-direction:column;gap:16px;}
-    .login-logo{text-align:center;}
-    .login-logo .crown{font-size:3.2rem;display:block;}
-    .login-logo h1{font-size:2.2rem;color:var(--accent);}
-    .login-logo p{font-size:.85rem;color:var(--dim);margin-top:4px;font-family:'Noto Sans KR',sans-serif;}
-    .field-lbl{font-size:.8rem;color:var(--dim);margin-bottom:5px;font-family:'Noto Sans KR',sans-serif;}
-    .inp-code{width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;
-              padding:13px 16px;color:var(--text);font-size:1.5rem;font-family:'Jua',sans-serif;
-              outline:none;text-align:center;letter-spacing:5px;text-transform:uppercase;transition:border-color .2s;}
-    .inp-name{width:100%;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;
-              padding:13px 16px;color:var(--text);font-size:1.2rem;font-family:'Jua',sans-serif;
-              outline:none;text-align:center;transition:border-color .2s;}
-    .inp-code:focus,.inp-name:focus{border-color:var(--accent);}
-    .login-note{font-size:.75rem;color:var(--dim);text-align:center;font-family:'Noto Sans KR',sans-serif;}
-
-    /* ─────────── 로비 ─────────── */
-    #sc-lobby{align-items:stretch;}
-    .lobby-body{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;align-items:center;gap:12px;}
-    .online-banner{width:100%;max-width:480px;background:rgba(34,211,238,.07);
-                   border:1px solid rgba(34,211,238,.2);border-radius:12px;padding:10px 16px;
-                   font-size:.9rem;color:var(--cyan);display:flex;align-items:center;gap:8px;}
-    .live-dot{width:8px;height:8px;background:var(--green);border-radius:50%;animation:pulse 1.5s infinite;flex-shrink:0;}
-    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
-    .sec-label{font-size:.8rem;color:var(--dim);align-self:flex-start;
-               width:100%;max-width:480px;font-family:'Noto Sans KR',sans-serif;}
-    .game-card{width:100%;max-width:480px;background:var(--bg2);border:1.5px solid var(--border);
-               border-radius:16px;padding:18px;cursor:pointer;display:flex;align-items:center;
-               gap:14px;transition:all .2s;}
-    .game-card:hover{border-color:var(--purpleL);transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.4);}
-    .game-card.locked{opacity:.38;cursor:not-allowed;pointer-events:none;}
-    .gc-icon{font-size:2.6rem;flex-shrink:0;}
-    .gc-info{flex:1;}
-    .gc-name{font-size:1.25rem;}
-    .gc-desc{font-size:.82rem;color:var(--dim);margin-top:2px;font-family:'Noto Sans KR',sans-serif;}
-    .gc-tag{background:rgba(124,58,237,.22);border:1px solid var(--purpleL);border-radius:20px;
-            padding:3px 10px;font-size:.72rem;color:var(--purpleL);flex-shrink:0;}
-    .gc-tag.locked{background:rgba(80,80,80,.2);border-color:#444;color:#555;}
-    /* 로비 랭킹 버튼 */
-    .lobby-rank-btn{width:100%;max-width:480px;background:rgba(255,217,61,.06);
-                    border:1px solid rgba(255,217,61,.25);border-radius:14px;
-                    padding:13px 18px;cursor:pointer;display:flex;align-items:center;gap:10px;
-                    transition:all .2s;font-family:'Jua',sans-serif;color:var(--accent);font-size:1rem;}
-    .lobby-rank-btn:hover{background:rgba(255,217,61,.12);border-color:var(--accent);}
-
-    /* ─────────── 모드 선택 ─────────── */
-    #sc-mode{align-items:stretch;}
-    .mode-body{flex:1;display:flex;flex-direction:column;align-items:center;
-               justify-content:center;padding:20px;gap:14px;overflow-y:auto;}
-    .mode-card{width:100%;max-width:380px;background:var(--bg2);border:2px solid var(--border);
-               border-radius:20px;padding:24px;cursor:pointer;text-align:center;transition:all .2s;}
-    .mode-card:hover{transform:translateY(-4px);box-shadow:0 16px 40px rgba(0,0,0,.5);}
-    .mode-card.solo{border-color:rgba(34,211,238,.45);}
-    .mode-card.solo:hover{background:rgba(34,211,238,.04);border-color:var(--cyan);}
-    .mode-card.multi{border-color:rgba(124,58,237,.45);}
-    .mode-card.multi:hover{background:rgba(124,58,237,.04);border-color:var(--purpleL);}
-    .mc-icon{font-size:3rem;margin-bottom:8px;}
-    .mc-title{font-size:1.8rem;margin-bottom:4px;}
-    .mc-desc{font-size:.85rem;color:var(--dim);line-height:1.6;font-family:'Noto Sans KR',sans-serif;}
-    .level-select-area{width:100%;max-width:380px;background:var(--bg2);border:1px solid var(--border);
-                        border-radius:16px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;}
-    .lsa-title{font-size:.82rem;color:var(--dim);font-family:'Noto Sans KR',sans-serif;}
-    .lvl-row{display:flex;gap:8px;}
-    .lvl-btn{flex:1;background:var(--bg3);border:1.5px solid var(--border);border-radius:10px;
-             padding:9px 4px;text-align:center;cursor:pointer;font-family:'Jua',sans-serif;
-             font-size:.9rem;color:var(--dim);transition:all .18s;}
-    .lvl-btn small{display:block;font-size:.65rem;color:var(--dim);margin-top:2px;font-family:'Noto Sans KR',sans-serif;}
-    .lvl-btn.sel{background:rgba(255,217,61,.12);border-color:var(--accent);color:var(--accent);}
-
-    /* ─────────── 방 목록 ─────────── */
-    #sc-rooms{align-items:stretch;}
-    .rooms-body{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px;}
-    .room-item{background:var(--bg2);border:1px solid var(--border);border-radius:12px;
-               padding:14px 16px;display:flex;align-items:center;gap:12px;cursor:pointer;transition:all .15s;}
-    .room-item:hover{border-color:var(--purpleL);background:rgba(124,58,237,.06);}
-    .room-item.busy{opacity:.4;cursor:not-allowed;pointer-events:none;}
-    .ri-icon{font-size:1.5rem;flex-shrink:0;}
-    .ri-info{flex:1;min-width:0;}
-    .ri-name{font-size:1.1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-    .ri-sub{font-size:.78rem;color:var(--dim);font-family:'Noto Sans KR',sans-serif;}
-    .ri-cnt{background:var(--bg3);border-radius:20px;padding:3px 10px;font-size:.85rem;color:var(--accent);flex-shrink:0;}
-    .ri-status{border-radius:20px;padding:3px 10px;font-size:.75rem;flex-shrink:0;}
-    .ri-status.wait{background:rgba(34,211,238,.13);color:var(--cyan);}
-    .ri-status.play{background:rgba(248,113,113,.13);color:var(--red);}
-    .empty-state{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
-                 gap:8px;color:var(--dim);font-size:.9rem;font-family:'Noto Sans KR',sans-serif;}
-    .empty-icon{font-size:2.5rem;}
-    .rooms-foot{padding:12px;border-top:1px solid var(--border);background:var(--bg2);}
-
-    /* ─────────── 대기실 ─────────── */
-    #sc-wait{align-items:stretch;}
-    .wait-body{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:12px;}
-    .code-card{background:var(--bg2);border:1.5px dashed var(--accent);border-radius:14px;padding:14px;text-align:center;}
-    .code-lbl{font-size:.78rem;color:var(--dim);margin-bottom:4px;font-family:'Noto Sans KR',sans-serif;}
-    .code-val{font-size:2.2rem;color:var(--accent);letter-spacing:6px;}
-    .code-hint{font-size:.72rem;color:var(--dim);margin-top:4px;font-family:'Noto Sans KR',sans-serif;}
-    .pw-list{display:flex;flex-direction:column;gap:8px;}
-    .pw-item{background:var(--bg2);border:1px solid var(--border);border-radius:12px;
-             padding:11px 14px;display:flex;align-items:center;gap:10px;animation:slideIn .2s ease;}
-    @keyframes slideIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
-    .pw-av{font-size:1.7rem;flex-shrink:0;}
-    .pw-info{flex:1;}
-    .pw-name{font-size:1.05rem;}
-    .pw-role{font-size:.75rem;color:var(--dim);font-family:'Noto Sans KR',sans-serif;}
-    .pw-badge{border-radius:20px;padding:3px 10px;font-size:.75rem;flex-shrink:0;}
-    .pw-badge.host{background:rgba(255,217,61,.15);color:var(--accent);}
-    .pw-badge.me{background:rgba(34,211,238,.15);color:var(--cyan);}
-    .pw-badge.guest{background:rgba(100,100,100,.13);color:#666;}
-    .wait-foot{padding:12px;border-top:1px solid var(--border);background:var(--bg2);display:flex;flex-direction:column;gap:8px;}
-    .guest-wait{font-size:.9rem;color:var(--dim);text-align:center;padding:8px 0;
-                display:flex;align-items:center;justify-content:center;gap:8px;font-family:'Noto Sans KR',sans-serif;}
-    .room-level-tag{background:rgba(255,217,61,.12);border:1px solid var(--accent);
-                    border-radius:20px;padding:4px 12px;font-size:.8rem;color:var(--accent);text-align:center;}
-
-    /* ─────────── 게임 화면 ─────────── */
-    #sc-game{flex-direction:column;}
-    .game-hdr{width:100%;height:52px;background:var(--bg2);border-bottom:1px solid var(--border);
-              display:flex;align-items:center;padding:0 12px;gap:10px;flex-shrink:0;}
-    .gh-title{font-size:1rem;color:var(--dim);flex-shrink:0;}
-    .timer-box{font-size:1.9rem;color:#fff;background:var(--bg3);padding:2px 18px;
-               border-radius:10px;border:2.5px solid #4b5563;min-width:72px;text-align:center;margin:0 auto;}
-    .timer-box.urgent{color:var(--red);border-color:var(--red);animation:blink .5s infinite;}
-    @keyframes blink{50%{opacity:.45}}
-    .mode-tag{font-size:.75rem;color:var(--dim);background:var(--bg3);border:1px solid var(--border);
-              border-radius:20px;padding:2px 10px;flex-shrink:0;}
-    .rank-bar{display:none;width:100%;background:#080b10;border-bottom:1px solid var(--border);
-              padding:5px 10px;overflow-x:auto;gap:8px;flex-shrink:0;align-items:center;min-height:36px;}
-    .rank-bar.on{display:flex;}
-    .rank-chip{display:flex;align-items:center;gap:5px;background:var(--bg3);border:1px solid var(--border);
-               border-radius:20px;padding:3px 10px;font-size:.8rem;white-space:nowrap;flex-shrink:0;}
-    .rank-chip.me{border-color:var(--purpleL);background:rgba(124,58,237,.2);}
-    .rc-pos{color:var(--accent);}
-    .rc-score{color:var(--cyan);}
-    .stat-bar{display:flex;justify-content:space-between;align-items:center;padding:5px 14px;
-              background:rgba(0,0,0,.22);border-bottom:1px solid rgba(255,255,255,.04);flex-shrink:0;}
-    .stat-pill{background:var(--bg3);border:1px solid var(--border);border-radius:20px;padding:4px 14px;font-size:.95rem;}
-    .stat-pill span{color:var(--accent);}
-    .board-wrap{flex:1;display:flex;justify-content:center;align-items:center;padding:10px;min-height:0;min-width:0;}
-    #game-board{position:relative;background:rgba(0,0,0,.2);border-radius:18px;
-                box-shadow:inset 0 0 20px rgba(0,0,0,.4);touch-action:none;overflow:hidden;}
-    .game-foot{padding:8px 12px;border-top:1px solid rgba(255,255,255,.05);display:flex;justify-content:center;flex-shrink:0;}
-    .redraw-btn{background:var(--bg3);color:var(--dim);border:1px solid var(--border);border-radius:20px;
-                padding:6px 20px;font-family:'Jua',sans-serif;font-size:.9rem;cursor:pointer;
-                display:flex;align-items:center;gap:6px;transition:all .15s;}
-    .redraw-btn:hover{color:var(--text);border-color:var(--dim);}
-    .redraw-btn:active{transform:scale(.95);}
-
-    /* ─────────── 랭킹 화면 ─────────── */
-    #sc-ranking{align-items:stretch;}
-    .rank-tabs-row{padding:10px 12px 0;display:flex;gap:8px;overflow-x:auto;flex-shrink:0;}
-    .rank-tab{background:var(--bg3);border:1px solid var(--border);border-radius:20px;
-              padding:7px 16px;font-size:.88rem;color:var(--dim);cursor:pointer;
-              white-space:nowrap;transition:all .15s;font-family:'Jua',sans-serif;flex-shrink:0;}
-    .rank-tab.active{background:rgba(255,217,61,.12);border-color:var(--accent);color:var(--accent);}
-    .ranking-body{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px;}
-    .rank-item{background:var(--bg2);border:1px solid var(--border);border-radius:12px;
-               padding:12px 16px;display:flex;align-items:center;gap:12px;animation:slideIn .25s ease both;}
-    .rank-item.top1{border-color:var(--accent);background:rgba(255,217,61,.06);}
-    .rank-item.top2{border-color:#9ca3af;}
-    .rank-item.top3{border-color:#cd7c40;}
-    .rank-item.mine{box-shadow:0 0 0 2px var(--purple);}
-    .rank-no{font-size:1.6rem;width:40px;text-align:center;flex-shrink:0;}
-    .rank-info{flex:1;min-width:0;}
-    .rank-name{font-size:1.05rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-    .rank-date{font-size:.72rem;color:var(--dim);margin-top:2px;font-family:'Noto Sans KR',sans-serif;}
-    .rank-score{font-size:1.3rem;color:var(--accent);flex-shrink:0;}
-    .rank-my-badge{font-size:.7rem;color:var(--cyan);background:rgba(34,211,238,.1);
-                   border:1px solid rgba(34,211,238,.3);border-radius:10px;padding:1px 7px;margin-left:4px;}
-
-    /* ─────────── 오버레이 ─────────── */
-    #overlay{position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:900;
-             display:none;flex-direction:column;align-items:center;justify-content:center;}
-    #cd-txt{font-size:9rem;color:var(--accent);text-shadow:0 0 40px rgba(255,217,61,.55);animation:cdPop .35s ease;}
-    @keyframes cdPop{from{transform:scale(1.5);opacity:0}to{transform:scale(1);opacity:1}}
-    .res-wrap{width:90%;max-width:460px;display:flex;flex-direction:column;gap:16px;max-height:90dvh;overflow-y:auto;}
-    .res-title{text-align:center;font-size:2rem;color:var(--accent);}
-    .res-list{display:flex;flex-direction:column;gap:8px;}
-    .res-row{background:var(--bg2);border:1px solid var(--border);border-radius:12px;
-             padding:12px 16px;display:flex;align-items:center;gap:12px;animation:slideIn .3s ease both;}
-    .res-row.gold{border-color:var(--accent);background:rgba(255,217,61,.06);}
-    .res-row.silver{border-color:#9ca3af;}
-    .res-row.bronze{border-color:#cd7c40;}
-    .res-row.mine{box-shadow:0 0 0 2px var(--purple);}
-    .rr-medal{font-size:1.8rem;width:40px;text-align:center;flex-shrink:0;}
-    .rr-name{flex:1;font-size:1.1rem;}
-    .rr-score{font-size:1.4rem;color:var(--accent);flex-shrink:0;}
-    .res-btns{display:flex;flex-direction:column;gap:8px;}
-    .res-new-record{text-align:center;color:var(--accent);font-size:1.1rem;
-                    animation:cdPop .4s ease;background:rgba(255,217,61,.08);
-                    border:1px solid rgba(255,217,61,.3);border-radius:10px;padding:8px;}
-
-    /* ─────────── 토스트 ─────────── */
-    #toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(80px);
-           background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:10px 20px;
-           font-size:.9rem;transition:transform .28s ease;z-index:9999;white-space:nowrap;font-family:'Noto Sans KR',sans-serif;}
-    #toast.show{transform:translateX(-50%) translateY(0);}
-
-    /* ─────────── 스크롤바 ─────────── */
-    ::-webkit-scrollbar{width:4px;}
-    ::-webkit-scrollbar-track{background:transparent;}
-    ::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
-  </style>
 </head>
 <body>
 
-<!-- ════════ 로그인 ════════ -->
-<div id="sc-login" class="screen active">
-  <div class="login-box">
-    <div class="login-logo">
-      <span class="crown">👑</span>
-      <h1>킹수학</h1>
-      <p>게임으로 수학의 킹이 되어라!</p>
+<!-- ── 배경 별 ─────────────────────────────── -->
+<div id="starsBg"></div>
+
+<!-- ══════════════════════════════════════════
+     로그인 화면
+══════════════════════════════════════════════ -->
+<div id="loginScreen" class="screen">
+  <div class="login-screen-wrapper">
+    <div class="login-box">
+      <div class="login-logo">🧮</div>
+      <h1 class="login-title">수학 놀이터</h1>
+      <p class="login-subtitle">수학으로 즐기는 두뇌 스포츠!</p>
+
+      <input
+        type="text"
+        id="usernameInput"
+        placeholder="닉네임 입력 (2~10자)"
+        maxlength="10"
+        class="input-field"
+        autocomplete="off"
+      />
+      <button onclick="handleLogin()" class="btn btn-primary btn-large btn-full">
+        입장하기 🚀
+      </button>
     </div>
-    <div>
-      <div class="field-lbl">학교 코드 (선생님께 받으세요)</div>
-      <input id="inp-school" class="inp-code" type="text" placeholder="ABC123" maxlength="10" autocomplete="off" spellcheck="false">
-    </div>
-    <div>
-      <div class="field-lbl">닉네임</div>
-      <input id="inp-name" class="inp-name" type="text" placeholder="이름을 입력하세요" maxlength="8" autocomplete="off">
-    </div>
-    <button class="btn-p" onclick="doLogin()">입장하기 🚀</button>
-    <div class="login-note">학교 코드를 모르면 선생님께 문의하세요</div>
   </div>
 </div>
 
-<!-- ════════ 로비 ════════ -->
-<div id="sc-lobby" class="screen">
-  <div class="app-hdr">
-    <button class="back-btn" onclick="doLogout()" title="로그아웃">🏠</button>
-    <span class="hdr-title" id="lobby-title">킹수학</span>
-    <span class="user-pill" id="lobby-pill">-</span>
-  </div>
-  <div class="lobby-body">
-    <div class="online-banner">
-      <div class="live-dot"></div>
-      <span id="online-txt">현재 0명 접속 중</span>
-    </div>
+<!-- ══════════════════════════════════════════
+     메인 로비
+══════════════════════════════════════════════ -->
+<div id="mainLobby" class="screen hidden">
 
-    <!-- 랭킹 보기 버튼 -->
-    <button class="lobby-rank-btn" onclick="showRanking('tongbun')">
-      <span style="font-size:1.4rem">🏆</span>
-      <span style="flex:1;text-align:left">전체 랭킹 보기</span>
-      <span style="font-size:.78rem;color:var(--dim)">게임별 최고 기록 ›</span>
-    </button>
-
-    <div class="sec-label">🎮 게임 선택</div>
-
-    <div class="game-card" onclick="pickGame('tongbun','통분 연결킹 👑','games/tongbun.js')">
-      <div class="gc-icon">🔢</div>
-      <div class="gc-info">
-        <div class="gc-name">통분 연결킹 👑</div>
-        <div class="gc-desc">크기가 같은 분수를 찾아 선으로 연결하라!</div>
+  <!-- 헤더 -->
+  <header class="header">
+    <div class="header-content">
+      <div class="header-logo">🧮 수학 놀이터</div>
+      <div class="header-user">
+        <span class="user-badge" id="headerUsername"></span>
+        <button onclick="handleLogout()" class="btn btn-ghost btn-sm">로그아웃</button>
       </div>
-      <div class="gc-tag">분수</div>
     </div>
+  </header>
 
-    <div class="game-card" onclick="pickGame('sandeunban','분수 산 등반 🏔️','games/sandeunban.js')">
-      <div class="gc-icon">🏔️</div>
-      <div class="gc-info">
-        <div class="gc-name">분수 산 등반 🏔️</div>
-        <div class="gc-desc">기약분수를 만들며 정상을 향해 올라가자!</div>
+  <div class="container">
+
+    <!-- 게임 선택 -->
+    <section class="section">
+      <h2 class="section-title">🎮 게임 선택</h2>
+      <div class="games-grid" id="gamesGrid">
+        <!-- JS로 렌더링 -->
       </div>
-      <div class="gc-tag">약분</div>
-    </div>
+    </section>
 
-    <div class="game-card locked">
-      <div class="gc-icon">✖️</div>
-      <div class="gc-info">
-        <div class="gc-name">곱셈 스피드킹</div>
-        <div class="gc-desc">Coming soon...</div>
+    <!-- 랭킹 -->
+    <section class="section">
+      <h2 class="section-title">🏆 명예의 전당</h2>
+      <div class="ranking-tabs" id="rankingTabs">
+        <!-- JS로 렌더링 -->
       </div>
-      <div class="gc-tag locked">🔒 준비 중</div>
-    </div>
-  </div>
-</div>
-
-<!-- ════════ 모드 선택 ════════ -->
-<div id="sc-mode" class="screen">
-  <div class="app-hdr">
-    <button class="back-btn" onclick="goTo('sc-lobby')">←</button>
-    <span class="hdr-title" id="mode-title">게임 선택</span>
-    <span class="user-pill" id="mode-pill">-</span>
-  </div>
-  <div class="mode-body">
-    <div id="mode-options" style="display:none;width:100%;max-width:380px;"></div>
-    <div class="mode-card solo" onclick="startSolo()">
-      <div class="mc-icon">🧑‍💻</div>
-      <div class="mc-title">솔로 플레이</div>
-      <div class="mc-desc">혼자서 도전!<br>나만의 기록을 세워보세요.</div>
-    </div>
-    <div class="mode-card multi" onclick="goToRooms()">
-      <div class="mc-icon">👥</div>
-      <div class="mc-title">멀티플레이</div>
-      <div class="mc-desc">같은 반 친구들과 실시간 대결!<br>방을 만들거나 입장하세요.</div>
-    </div>
-  </div>
-</div>
-
-<!-- ════════ 방 목록 ════════ -->
-<div id="sc-rooms" class="screen">
-  <div class="app-hdr">
-    <button class="back-btn" onclick="leaveRoomList()">←</button>
-    <span class="hdr-title">방 목록</span>
-    <span class="user-pill" id="rooms-pill">-</span>
-  </div>
-  <div class="rooms-body" id="rooms-body">
-    <div class="empty-state"><div class="empty-icon">⏳</div><div>불러오는 중...</div></div>
-  </div>
-  <div class="rooms-foot"><button class="btn-p" onclick="createRoom()">+ 새 방 만들기</button></div>
-</div>
-
-<!-- ════════ 대기실 ════════ -->
-<div id="sc-wait" class="screen">
-  <div class="app-hdr">
-    <button class="back-btn" onclick="leaveRoom()">←</button>
-    <span class="hdr-title" id="wait-hdr-title">대기실</span>
-    <span class="user-pill" id="wait-pill">-</span>
-  </div>
-  <div class="wait-body">
-    <div class="code-card">
-      <div class="code-lbl">방 코드</div>
-      <div class="code-val" id="wait-code">------</div>
-      <div class="code-hint">친구에게 이 코드를 알려주세요</div>
-    </div>
-    <div id="wait-level-tag" style="display:none;"></div>
-    <div class="sec-label">👥 참가자 (<span id="wait-cnt">0</span>명)</div>
-    <div class="pw-list" id="pw-list"></div>
-  </div>
-  <div class="wait-foot" id="wait-foot"></div>
-</div>
-
-<!-- ════════ 게임 ════════ -->
-<div id="sc-game" class="screen">
-  <div class="game-hdr">
-    <span class="gh-title" id="game-hdr-title">킹수학</span>
-    <div class="timer-box" id="timer-box">60</div>
-    <span class="mode-tag" id="mode-tag">솔로</span>
-  </div>
-  <div class="rank-bar" id="rank-bar"></div>
-  <div class="stat-bar" id="stat-bar">
-    <div class="stat-pill">점수 <span id="disp-score">0</span>점</div>
-    <div class="stat-pill">콤보 <span id="disp-combo">0</span> 🔥</div>
-  </div>
-  <div class="board-wrap">
-    <div id="game-board">
-      <svg id="game-svg" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:4;"></svg>
-      <div id="game-dots" style="position:absolute;inset:0;z-index:5;"></div>
-    </div>
-  </div>
-  <div class="game-foot" id="game-foot">
-    <button class="redraw-btn" onclick="resetBoard()"><i class="fa-solid fa-eraser"></i> 다시 그리기</button>
-  </div>
-</div>
-
-<!-- ════════ 랭킹 화면 ════════ -->
-<div id="sc-ranking" class="screen">
-  <div class="app-hdr">
-    <button class="back-btn" onclick="goTo('sc-lobby')">←</button>
-    <span class="hdr-title" id="ranking-title">🏆 랭킹</span>
-    <span class="user-pill" id="ranking-pill">-</span>
-  </div>
-  <div class="rank-tabs-row" id="rank-tabs"></div>
-  <div class="ranking-body" id="ranking-body">
-    <div class="empty-state"><div class="empty-icon">⏳</div><div>불러오는 중...</div></div>
-  </div>
-</div>
-
-<!-- ════════ 오버레이 (카운트다운 / 결과) ════════ -->
-<div id="overlay"><div id="cd-txt">3</div></div>
-<div id="toast"></div>
-
-<script>
-/* ══════════════════════════════════════════
-   FIREBASE 초기화
-   ══════════════════════════════════════════ */
-const firebaseConfig = {
-  apiKey:            "AIzaSyCbkXyFyjSWwfXSpoFcEG38LOxqSa0J0sw",
-  authDomain:        "mathk-1e5d1.firebaseapp.com",
-  databaseURL:       "https://mathk-1e5d1-default-rtdb.firebaseio.com",
-  projectId:         "mathk-1e5d1",
-  storageBucket:     "mathk-1e5d1.firebasestorage.app",
-  messagingSenderId: "433859326",
-  appId:             "1:433859326:web:88abca82a506e116af93af"
-};
-firebase.initializeApp(firebaseConfig);
-const db = firebase.database();
-
-/* ══════════════════════════════════════════
-   앱 상태
-   ══════════════════════════════════════════ */
-let myId = localStorage.getItem('km_uid') || (()=>{
-  const id = 'u_' + Math.random().toString(36).slice(2,10);
-  localStorage.setItem('km_uid', id);
-  return id;
-})();
-let myName = '', schoolCode = '';
-let curGameKey = '', curGameTitle = '', curGameSrc = '', curGameOptions = {};
-let curRoomId = null, isHost = false, isMulti = false, gameStarted = false, CurrentGame = null;
-let score = 0, combo = 0, boardStartScore = 0, boardStartCombo = 0;
-let timerIv = null, timeLeft = 60;
-let roomsRef = null, roomRef = null, rankRef = null, presenceRef = null;
-
-const AVATARS = ['🐶','🐱','🐰','🐹','🐼','🐻','🦊','🐯'];
-const LEVEL_NAMES = {1:'⛰️ 초급',2:'🏔️ 중급',3:'🗻 고급',4:'⚡ 신의경지'};
-
-/**
- * ★ 게임 목록 중앙 관리
- *   새 게임 추가/삭제 시 이 배열만 수정하면 됩니다.
- *   기존 게임의 데이터는 gameKey(Firebase 경로)로 영구 보존됩니다.
- */
-const GAME_LIST = [
-  { key:'tongbun',    name:'통분 연결킹 👑',  src:'games/tongbun.js'    },
-  { key:'sandeunban', name:'분수 산 등반 🏔️', src:'games/sandeunban.js' },
-];
-
-/* ══════════════════════════════════════════
-   화면 전환
-   ══════════════════════════════════════════ */
-function goTo(id){
-  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-  document.getElementById(id).classList.add('active');
-}
-
-/* ══════════════════════════════════════════
-   로그인 / 로그아웃
-   ══════════════════════════════════════════ */
-function doLogin(){
-  const code = (document.getElementById('inp-school').value || '').trim().toUpperCase();
-  const name = (document.getElementById('inp-name').value  || '').trim();
-  if(code.length < 3){ toast('학교 코드를 3자 이상 입력하세요'); return; }
-  if(!name)          { toast('닉네임을 입력하세요'); return; }
-
-  schoolCode = code;
-  myName     = name;
-
-  presenceRef = db.ref(`rooms/${schoolCode}/_presence/${myId}`);
-  presenceRef.set({ name:myName, at:Date.now() });
-  presenceRef.onDisconnect().remove();
-
-  db.ref(`rooms/${schoolCode}/_presence`).on('value', snap => {
-    const cnt = snap.numChildren ? snap.numChildren() : Object.keys(snap.val()||{}).length;
-    document.getElementById('online-txt').textContent = `현재 ${cnt}명 접속 중`;
-  });
-
-  syncPills();
-  document.getElementById('lobby-title').textContent = `킹수학 [${schoolCode}]`;
-  goTo('sc-lobby');
-  snd('click');
-}
-
-function doLogout(){
-  if(curRoomId) leaveRoom();
-  db.ref(`rooms/${schoolCode}/_presence`).off();
-  if(presenceRef) presenceRef.remove();
-  goTo('sc-login');
-  snd('click');
-}
-
-function syncPills(){
-  const lbl = `${AVATARS[0]} ${myName}`;
-  ['lobby-pill','mode-pill','rooms-pill','wait-pill','ranking-pill'].forEach(id => {
-    const el = document.getElementById(id);
-    if(el) el.textContent = lbl;
-  });
-}
-
-/* ══════════════════════════════════════════
-   로비 – 게임 선택
-   ══════════════════════════════════════════ */
-function pickGame(key, title, src){
-  curGameKey = key; curGameTitle = title; curGameSrc = src; curGameOptions = {};
-  document.getElementById('mode-title').textContent     = title;
-  document.getElementById('game-hdr-title').textContent = title;
-
-  const optArea = document.getElementById('mode-options');
-  if(key === 'sandeunban'){
-    curGameOptions.level = 1; curGameOptions.duration = 120;
-    optArea.style.display = 'block';
-    optArea.innerHTML = `
-      <div class="level-select-area">
-        <div class="lsa-title">🎯 난이도 선택</div>
-        <div class="lvl-row">
-          <div class="lvl-btn sel" onclick="setLvl(1,this)">⛰️ 초급<small>분모 20↓</small></div>
-          <div class="lvl-btn"     onclick="setLvl(2,this)">🏔️ 중급<small>분모 36↓</small></div>
-          <div class="lvl-btn"     onclick="setLvl(3,this)">🗻 고급<small>분모 60↓</small></div>
-          <div class="lvl-btn"     onclick="setLvl(4,this)">⚡ 신의<small>분모 100↓</small></div>
-        </div>
-      </div>`;
-  } else {
-    optArea.style.display = 'none';
-    optArea.innerHTML = '';
-  }
-
-  goTo('sc-mode');
-  snd('click');
-}
-
-function setLvl(lv, el){
-  const DUR = {1:120, 2:100, 3:90, 4:120};
-  curGameOptions.level    = lv;
-  curGameOptions.duration = DUR[lv];
-  document.querySelectorAll('#mode-options .lvl-btn').forEach(b => b.classList.remove('sel'));
-  el.classList.add('sel');
-  snd('click');
-}
-
-/* ══════════════════════════════════════════
-   스크립트 동적 로더 (버그 수정)
-   ──────────────────────────────────────────
-   ① head에서 사전 로드된 경우 → 즉시 resolve
-   ② 이미 같은 src의 <script data-game="..."> 태그가 있으면 폴링으로 대기
-   ③ 그 외 → 새로운 <script> 태그를 추가하여 로드
-   ══════════════════════════════════════════ */
-function loadGameScript(src){
-  if(getGameModule() !== null) return Promise.resolve();
-
-  return new Promise((resolve, reject) => {
-    // 이미 추가된 script 태그가 있으면 폴링으로 모듈 초기화 대기
-    const existing = document.querySelector(`script[data-game="${src}"]`);
-    if(existing){
-      let tries = 0;
-      const iv = setInterval(()=>{
-        tries++;
-        if(getGameModule() !== null){ clearInterval(iv); resolve(); }
-        else if(tries > 30)        { clearInterval(iv); reject(new Error('모듈 초기화 타임아웃: ' + src)); }
-      }, 100);
-      return;
-    }
-
-    // 새 script 태그 동적 추가
-    const s = document.createElement('script');
-    s.src = src;
-    s.setAttribute('data-game', src);
-    s.onload  = ()=>{ getGameModule() !== null ? resolve() : reject(new Error('모듈 초기화 실패: ' + src)); };
-    s.onerror = ()=> reject(new Error('파일 로드 실패: ' + src));
-    document.head.appendChild(s);
-  });
-}
-
-/* ══════════════════════════════════════════
-   게임 모듈 조회
-   ══════════════════════════════════════════ */
-function getGameModule(){
-  const map = {};
-  GAME_LIST.forEach(g => {
-    if(g.key === 'tongbun')    map.tongbun    = window.TongbunGame;
-    if(g.key === 'sandeunban') map.sandeunban = window.SanDeunBanGame;
-  });
-  return map[curGameKey] || null;
-}
-
-/* ══════════════════════════════════════════
-   점수 콜백
-   ══════════════════════════════════════════ */
-function cbCorrect(){ combo++; const gained = 10 * combo; score += gained; updateStatUI(); if(isMulti) syncScore(); snd('correct'); return gained; }
-function cbWrong()  { combo = 0; score = Math.max(0, score - 10); updateStatUI(); if(isMulti) syncScore(); snd('wrong'); }
-function cbUndo(gained){ score = Math.max(0, score - gained); combo = Math.max(0, combo - 1); updateStatUI(); if(isMulti) syncScore(); snd('tick'); }
-function cbBoardStart(){ boardStartScore = score; boardStartCombo = combo; }
-function updateStatUI(){ document.getElementById('disp-score').textContent = score; document.getElementById('disp-combo').textContent = combo; }
-function syncScore(){ if(!isMulti || !curRoomId) return; db.ref(`rooms/${schoolCode}/list/${curRoomId}/players/${myId}`).update({score, combo}); }
-
-/* ══════════════════════════════════════════
-   보드 리셋
-   ══════════════════════════════════════════ */
-function resetBoard(){
-  if(timeLeft <= 0 || !CurrentGame) return;
-  score = boardStartScore; combo = boardStartCombo;
-  updateStatUI(); if(isMulti) syncScore();
-  CurrentGame.resetBoard(); snd('tick');
-}
-
-/* ══════════════════════════════════════════
-   게임 화면 준비
-   ══════════════════════════════════════════ */
-function prepareGameScreen(multi){
-  score = 0; combo = 0; boardStartScore = 0; boardStartCombo = 0;
-  updateStatUI();
-  document.getElementById('rank-bar').classList.toggle('on', multi);
-  document.getElementById('stat-bar').style.display = multi ? 'none' : 'flex';
-  document.getElementById('game-foot').style.display = 'flex';
-  document.getElementById('mode-tag').textContent    = multi ? '멀티' : '솔로';
-  document.getElementById('game-svg').innerHTML  = '';
-  document.getElementById('game-dots').innerHTML = '';
-  goTo('sc-game');
-}
-
-/* ══════════════════════════════════════════
-   솔로 플레이
-   ══════════════════════════════════════════ */
-async function startSolo(){
-  snd('click');
-  try { await loadGameScript(curGameSrc); }
-  catch(e){ toast('게임 파일을 불러올 수 없습니다\n(' + e.message + ')'); return; }
-
-  isMulti = false; gameStarted = false;
-  prepareGameScreen(false);
-
-  CurrentGame = getGameModule();
-  if(!CurrentGame){ toast('게임 모듈을 찾을 수 없습니다'); return; }
-
-  CurrentGame.init({
-    boardEl:      document.getElementById('game-board'),
-    svgEl:        document.getElementById('game-svg'),
-    dotsEl:       document.getElementById('game-dots'),
-    onCorrect:    cbCorrect,
-    onWrong:      cbWrong,
-    onUndo:       cbUndo,
-    onBoardStart: cbBoardStart,
-    onComplete:   ()=>{ clearInterval(timerIv); endGame(); },
-    isActive:     ()=> timeLeft > 0,
-    getTimeLeft:  ()=> timeLeft,   // ★ 산 등반 게임: 정상 도달 시 남은 시간 표시용
-    options:      { ...curGameOptions },
-    hideFooter:   ()=> document.getElementById('game-foot').style.display = 'none',
-    showFooter:   ()=> document.getElementById('game-foot').style.display = 'flex',
-  });
-
-  const dur = curGameOptions.duration || CurrentGame.duration || 60;
-  startCountdown(()=> startTimer(dur));
-}
-
-/* ══════════════════════════════════════════
-   방 목록
-   ══════════════════════════════════════════ */
-function goToRooms()   { snd('click'); goTo('sc-rooms'); listenRooms(); }
-function leaveRoomList(){ if(roomsRef){ roomsRef.off(); roomsRef = null; } goTo('sc-mode'); }
-
-function listenRooms(){
-  if(roomsRef) roomsRef.off();
-  roomsRef = db.ref(`rooms/${schoolCode}/list`);
-  roomsRef.on('value', renderRooms);
-}
-
-function renderRooms(snap){
-  const body = document.getElementById('rooms-body');
-  if(!snap.exists()){
-    body.innerHTML = '<div class="empty-state"><div class="empty-icon">🏠</div><div>방이 없습니다. 새 방을 만들어보세요!</div></div>';
-    return;
-  }
-  body.innerHTML = '';
-  snap.forEach(child => {
-    const r = child.val();
-    if(!r || !r.players) return;
-    const cnt  = Object.keys(r.players).length;
-    const busy = r.status === 'playing' || r.status === 'countdown';
-    const full = cnt >= 8;
-    const lvName = r.options?.level ? LEVEL_NAMES[r.options.level] : '';
-    const div = document.createElement('div');
-    div.className = `room-item ${(busy||full) ? 'busy' : ''}`;
-    div.innerHTML = `
-      <div class="ri-icon">🎮</div>
-      <div class="ri-info">
-        <div class="ri-name">👑 ${r.hostName||'?'}의 방</div>
-        <div class="ri-sub">${r.gameName||''}${lvName?' · '+lvName:''}</div>
+      <div class="ranking-table-wrapper">
+        <table class="ranking-table">
+          <thead>
+            <tr>
+              <th>순위</th>
+              <th>닉네임</th>
+              <th>최고점수</th>
+            </tr>
+          </thead>
+          <tbody id="rankingBody">
+            <tr><td colspan="3" class="loading-row">불러오는 중...</td></tr>
+          </tbody>
+        </table>
       </div>
-      <div class="ri-cnt">👥 ${cnt}/8</div>
-      <div class="ri-status ${busy?'play':'wait'}">${busy?'게임 중':'대기 중'}</div>`;
-    if(!busy && !full) div.onclick = ()=> joinRoom(child.key);
-    body.appendChild(div);
-  });
-}
+    </section>
 
-function createRoom(){
-  const rid = 'R' + Math.random().toString(36).slice(2,8).toUpperCase();
-  db.ref(`rooms/${schoolCode}/list/${rid}`).set({
-    id:rid, game:curGameKey, gameName:curGameTitle,
-    host:myId, hostName:myName, status:'waiting',
-    createdAt:Date.now(), options:{...curGameOptions},
-    players:{[myId]:{name:myName,score:0,combo:0}}
-  })
-  .then(()=>{
-    db.ref(`rooms/${schoolCode}/list/${rid}`).onDisconnect().remove();
-    curRoomId = rid; isHost = true;
-    if(roomsRef){ roomsRef.off(); roomsRef = null; }
-    enterWaiting(rid); snd('click');
-  })
-  .catch(()=> toast('방 만들기에 실패했습니다'));
-}
+  </div>
+</div><!-- /mainLobby -->
 
-function joinRoom(rid){
-  db.ref(`rooms/${schoolCode}/list/${rid}`).get().then(snap => {
-    const r = snap.val();
-    if(!r || r.status !== 'waiting'){ toast('이미 시작된 방입니다'); return; }
-    db.ref(`rooms/${schoolCode}/list/${rid}/players/${myId}`)
-      .set({name:myName,score:0,combo:0})
-      .then(()=>{
-        db.ref(`rooms/${schoolCode}/list/${rid}/players/${myId}`).onDisconnect().remove();
-        curRoomId = rid; isHost = false;
-        if(roomsRef){ roomsRef.off(); roomsRef = null; }
-        enterWaiting(rid); snd('click');
-      })
-      .catch(()=> toast('방 입장에 실패했습니다'));
-  });
-}
+<!-- ══════════════════════════════════════════
+     멀티플레이 모달
+══════════════════════════════════════════════ -->
+<div id="multiModal" class="modal-overlay hidden">
+  <div class="modal">
+    <button onclick="closeMultiModal()" class="modal-close" title="닫기">✕</button>
 
-/* ══════════════════════════════════════════
-   대기실
-   ══════════════════════════════════════════ */
-function enterWaiting(rid){
-  goTo('sc-wait');
-  document.getElementById('wait-code').textContent     = rid;
-  document.getElementById('wait-hdr-title').textContent = isHost ? '대기실 (방장)' : '대기실';
+    <h2 class="modal-title">👥 <span id="multiModalGameName"></span> — 멀티플레이</h2>
 
-  if(roomRef) roomRef.off();
-  roomRef = db.ref(`rooms/${schoolCode}/list/${rid}`);
-  roomRef.on('value', snap => {
-    const r = snap.val();
-    if(!r){
-      if(!isHost){ toast('방이 삭제되었습니다'); curRoomId = null; goTo('sc-rooms'); listenRooms(); }
-      return;
-    }
-    if((r.status === 'countdown' || r.status === 'playing') && !gameStarted){
-      gameStarted = true;
-      curGameKey     = r.game     || curGameKey;
-      curGameTitle   = r.gameName || curGameTitle;
-      curGameSrc     = `games/${r.game || curGameKey}.js`;
-      curGameOptions = r.options  || {};
-      startMulti(r);
-      return;
-    }
-    const arr = Object.entries(r.players || {});
-    document.getElementById('wait-cnt').textContent = arr.length;
-    renderWaitPlayers(arr, r.host);
-    renderWaitFoot(arr.length);
-    const lvTag = document.getElementById('wait-level-tag');
-    if(r.options?.level){ lvTag.style.display = 'block'; lvTag.innerHTML = `<div class="room-level-tag">${LEVEL_NAMES[r.options.level]||''}</div>`; }
-    else lvTag.style.display = 'none';
-  });
-}
-
-function renderWaitPlayers(arr, hostId){
-  const list = document.getElementById('pw-list');
-  list.innerHTML = '';
-  arr.forEach(([pid, p], i) => {
-    const isMe = pid === myId, isRH = pid === hostId;
-    const div  = document.createElement('div'); div.className = 'pw-item';
-    div.innerHTML = `
-      <div class="pw-av">${AVATARS[i % AVATARS.length]}</div>
-      <div class="pw-info">
-        <div class="pw-name">${p.name}${isMe?' (나)':''}</div>
-        <div class="pw-role">${isRH?'방장':'참가자'}</div>
+    <!-- ① 방식 선택 -->
+    <div id="multiChoice" class="multi-screen">
+      <p class="modal-desc">같이 플레이할 방식을 선택하세요</p>
+      <div class="multi-buttons">
+        <button onclick="showCreateRoom()" class="btn btn-accent btn-large multi-btn">
+          <span class="btn-icon">🏠</span>
+          방 만들기
+          <span class="btn-desc">코드를 생성해 친구를 초대</span>
+        </button>
+        <button onclick="showJoinRoom()" class="btn btn-secondary btn-large multi-btn">
+          <span class="btn-icon">🚪</span>
+          방 참가하기
+          <span class="btn-desc">초대 코드로 방 입장</span>
+        </button>
       </div>
-      <div class="pw-badge ${isRH?'host':(isMe?'me':'guest')}">${isRH?'👑 방장':(isMe?'✔ 나':'대기')}</div>`;
-    list.appendChild(div);
-  });
-}
+    </div>
 
-function renderWaitFoot(cnt){
-  const foot = document.getElementById('wait-foot');
-  if(isHost){
-    const ok = cnt >= 2;
-    foot.innerHTML = `
-      <button class="btn-p" onclick="hostStart()" ${ok?'':'disabled'}>게임 시작! 🚀 (${cnt}명)</button>
-      ${ok?'':'<div style="font-size:.8rem;color:var(--dim);text-align:center;font-family:\'Noto Sans KR\',sans-serif;">최소 2명 필요</div>'}`;
-  } else {
-    foot.innerHTML = '<div class="guest-wait"><div class="live-dot"></div>방장이 시작하기를 기다리는 중...</div>';
-  }
-}
-
-function leaveRoom(){
-  if(!curRoomId){ goTo('sc-mode'); return; }
-  if(roomRef){ roomRef.off(); roomRef = null; }
-  if(isHost) db.ref(`rooms/${schoolCode}/list/${curRoomId}`).remove();
-  else       db.ref(`rooms/${schoolCode}/list/${curRoomId}/players/${myId}`).remove();
-  curRoomId = null; isHost = false; gameStarted = false;
-  goTo('sc-rooms'); listenRooms(); snd('click');
-}
-
-function hostStart(){
-  if(!isHost || !curRoomId) return;
-  db.ref(`rooms/${schoolCode}/list/${curRoomId}`).update({status:'countdown'});
-}
-
-/* ══════════════════════════════════════════
-   멀티플레이
-   ══════════════════════════════════════════ */
-async function startMulti(room){
-  isMulti = true;
-  if(roomRef){ roomRef.off(); roomRef = null; }
-  try { await loadGameScript(curGameSrc); }
-  catch(e){ toast('게임 파일을 불러올 수 없습니다'); return; }
-
-  prepareGameScreen(true);
-  db.ref(`rooms/${schoolCode}/list/${room.id}/players/${myId}`).update({score:0,combo:0});
-
-  CurrentGame = getGameModule();
-  if(!CurrentGame){ toast('게임 모듈을 찾을 수 없습니다'); return; }
-
-  CurrentGame.init({
-    boardEl:      document.getElementById('game-board'),
-    svgEl:        document.getElementById('game-svg'),
-    dotsEl:       document.getElementById('game-dots'),
-    onCorrect:    cbCorrect,
-    onWrong:      cbWrong,
-    onUndo:       cbUndo,
-    onBoardStart: cbBoardStart,
-    onComplete:   ()=>{ clearInterval(timerIv); endGame(); },
-    isActive:     ()=> timeLeft > 0,
-    getTimeLeft:  ()=> timeLeft,   // ★ 산 등반 게임: 정상 도달 시 남은 시간 표시용
-    options:      { ...curGameOptions },
-    hideFooter:   ()=> document.getElementById('game-foot').style.display = 'none',
-    showFooter:   ()=> document.getElementById('game-foot').style.display = 'flex',
-  });
-
-  const multiDur = room.options?.duration || curGameOptions.duration || 60;
-  startCountdown(()=>{
-    db.ref(`rooms/${schoolCode}/list/${room.id}`).update({status:'playing'});
-    startTimer(multiDur);
-    if(rankRef) rankRef.off();
-    rankRef = db.ref(`rooms/${schoolCode}/list/${room.id}/players`);
-    rankRef.on('value', snap => { if(snap.exists()) updateRankBar(snap.val()); });
-  });
-}
-
-function updateRankBar(data){
-  if(!data) return;
-  const bar    = document.getElementById('rank-bar');
-  const sorted = Object.entries(data).sort((a,b) => b[1].score - a[1].score);
-  bar.innerHTML = '';
-  sorted.forEach(([pid,p],i) => {
-    const chip = document.createElement('div');
-    chip.className = `rank-chip ${pid === myId ? 'me' : ''}`;
-    chip.innerHTML = `<span class="rc-pos">${i+1}위</span> ${AVATARS[i%AVATARS.length]} ${p.name} <span class="rc-score">${p.score}점</span>`;
-    bar.appendChild(chip);
-  });
-}
-
-/* ══════════════════════════════════════════
-   타이머
-   ══════════════════════════════════════════ */
-function startTimer(sec){
-  timeLeft = sec; updateTimerUI();
-  if(timerIv) clearInterval(timerIv);
-  timerIv = setInterval(()=>{
-    timeLeft--; updateTimerUI();
-    if(timeLeft <= 5 && timeLeft > 0) snd('tick');
-    if(timeLeft <= 0){ clearInterval(timerIv); endGame(); }
-  }, 1000);
-}
-
-function updateTimerUI(){
-  const el = document.getElementById('timer-box');
-  el.textContent = timeLeft;
-  timeLeft <= 10 ? el.classList.add('urgent') : el.classList.remove('urgent');
-}
-
-/* ══════════════════════════════════════════
-   카운트다운
-   ══════════════════════════════════════════ */
-function startCountdown(cb){
-  const ov = document.getElementById('overlay');
-  ov.innerHTML = '<div id="cd-txt">3</div>';
-  ov.style.display = 'flex';
-  let n = 3;
-  document.getElementById('cd-txt').textContent = n;
-  snd('click');
-  const iv = setInterval(()=>{
-    n--;
-    const el = document.getElementById('cd-txt');
-    if(n > 0){ el.textContent = n; snd('click'); }
-    else if(!n){ el.textContent = 'START!'; el.style.color = '#34d399'; snd('correct'); }
-    else { clearInterval(iv); ov.style.display = 'none'; cb(); }
-  }, 1000);
-}
-
-/* ══════════════════════════════════════════
-   랭킹 저장 (Firebase)
-   경로: rankings/{schoolCode}/{gameKey}/{uid}
-   → 게임별로 완전 독립 저장 (다른 게임에 영향 없음)
-   ══════════════════════════════════════════ */
-async function saveRanking(){
-  if(!schoolCode || !myId || !myName || !curGameKey) return;
-  try {
-    const ref  = db.ref(`rankings/${schoolCode}/${curGameKey}/${myId}`);
-    const snap = await ref.get();
-    const prev = snap.val();
-    if(!prev || score > (prev.best || 0)){
-      await ref.set({ name:myName, best:score, at:Date.now() });
-      return true; // 신기록
-    }
-  } catch(e){
-    console.warn('랭킹 저장 실패', e);
-  }
-  return false;
-}
-
-/* ══════════════════════════════════════════
-   게임 종료
-   ══════════════════════════════════════════ */
-async function endGame(){
-  clearInterval(timerIv);
-  if(rankRef){ rankRef.off(); rankRef = null; }
-  if(CurrentGame){ CurrentGame.destroy(); CurrentGame = null; }
-  snd('win');
-
-  // ★ 랭킹 저장 (솔로·멀티 모두)
-  const isNewRecord = await saveRanking();
-
-  if(isMulti && curRoomId){
-    await db.ref(`rooms/${schoolCode}/list/${curRoomId}/players/${myId}`).update({score, finalScore:score});
-    await new Promise(r => setTimeout(r, 800));
-    const snap = await db.ref(`rooms/${schoolCode}/list/${curRoomId}/players`).get();
-    showResults(snap.val(), isNewRecord);
-  } else {
-    showResults(null, isNewRecord);
-  }
-}
-
-/* ══════════════════════════════════════════
-   결과 화면
-   ══════════════════════════════════════════ */
-function showResults(data, isNewRecord){
-  const ov      = document.getElementById('overlay');
-  const medals  = ['🥇','🥈','🥉'];
-  const cls     = ['gold','silver','bronze'];
-  let rows = '';
-
-  if(isMulti && data){
-    const sorted = Object.entries(data).sort((a,b) => b[1].score - a[1].score);
-    sorted.forEach(([pid,p],i) => {
-      const me = pid === myId;
-      rows += `<div class="res-row ${cls[i]||''} ${me?'mine':''}" style="animation-delay:${i*80}ms">
-        <div class="rr-medal">${medals[i]||`${i+1}위`}</div>
-        <div class="rr-name">${AVATARS[i%AVATARS.length]} ${p.name}${me?' (나)':''}</div>
-        <div class="rr-score">${p.score}점</div>
-      </div>`;
-    });
-  } else {
-    rows = `<div class="res-row gold">
-      <div class="rr-medal">🏅</div>
-      <div class="rr-name">👤 ${myName}</div>
-      <div class="rr-score">${score}점</div>
-    </div>`;
-  }
-
-  const newRecordBadge = isNewRecord
-    ? `<div class="res-new-record">🎉 새 최고 기록! ${score}점</div>`
-    : '';
-
-  ov.innerHTML = `
-    <div class="res-wrap">
-      <div class="res-title">🏆 게임 종료!</div>
-      ${newRecordBadge}
-      <div class="res-list">${rows}</div>
-      <div class="res-btns">
-        <button class="btn-p" onclick="viewRankingFromResult()">🏆 랭킹 보기</button>
-        <button class="btn-ghost" onclick="backLobby()">🏠 로비로 돌아가기</button>
+    <!-- ② 방 만들기 대기 (호스트) -->
+    <div id="createRoomScreen" class="multi-screen hidden">
+      <div class="room-code-display">
+        <p class="room-code-label">📋 초대 코드</p>
+        <div class="room-code" id="roomCodeDisplay">------</div>
+        <button onclick="copyRoomCode()" class="btn btn-ghost btn-sm">📋 코드 복사</button>
       </div>
-    </div>`;
-  ov.style.display = 'flex';
-}
 
-/* ══════════════════════════════════════════
-   결과 화면 → 랭킹 화면
-   ══════════════════════════════════════════ */
-function viewRankingFromResult(){
-  document.getElementById('overlay').style.display = 'none';
-  _cleanupRoom();
-  isHost = false; isMulti = false; gameStarted = false;
-  showRanking(curGameKey);
-  snd('click');
-}
+      <div class="waiting-room">
+        <h3>대기 중인 플레이어</h3>
+        <div class="players-list" id="waitingPlayers"></div>
+      </div>
 
-function backLobby(){
-  clearInterval(timerIv);
-  if(rankRef){ rankRef.off(); rankRef = null; }
-  _cleanupRoom();
-  isHost = false; isMulti = false; gameStarted = false;
-  document.getElementById('overlay').style.display = 'none';
-  goTo('sc-lobby');
-  snd('click');
-}
+      <button onclick="startMultiGame()" id="startGameBtn" class="btn btn-large btn-full" disabled>
+        게임 시작 (최소 2명 필요)
+      </button>
+    </div>
 
-function _cleanupRoom(){
-  if(curRoomId){
-    try{
-      if(isHost) db.ref(`rooms/${schoolCode}/list/${curRoomId}`).remove();
-      else       db.ref(`rooms/${schoolCode}/list/${curRoomId}/players/${myId}`).remove();
-    }catch(e){}
-    if(roomRef){ roomRef.off(); roomRef = null; }
-    curRoomId = null;
-  }
-}
+    <!-- ③ 방 참가하기 -->
+    <div id="joinRoomScreen" class="multi-screen hidden">
+      <p class="modal-desc">친구에게 받은 6자리 코드를 입력하세요</p>
+      <input
+        type="text"
+        id="roomCodeInput"
+        placeholder="A B C 1 2 3"
+        maxlength="6"
+        class="input-field code-input"
+        autocomplete="off"
+        oninput="this.value=this.value.toUpperCase()"
+      />
+      <button onclick="joinRoom()" class="btn btn-primary btn-full">참가하기 →</button>
+      <div id="joinError" class="error-msg hidden"></div>
+    </div>
 
-/* ══════════════════════════════════════════
-   랭킹 화면
-   ══════════════════════════════════════════ */
-function showRanking(gameKey){
-  syncPills();
+    <!-- ④ 대기 중 (게스트) -->
+    <div id="guestWaitScreen" class="multi-screen hidden">
+      <div class="room-code-display">
+        <p class="room-code-label">참가한 방 코드</p>
+        <div class="room-code" id="guestRoomCode">------</div>
+      </div>
 
-  // 게임 탭 렌더링 (GAME_LIST 기반 – 게임 추가/삭제 자동 반영)
-  const tabsEl = document.getElementById('rank-tabs');
-  tabsEl.innerHTML = '';
-  GAME_LIST.forEach(g => {
-    const btn = document.createElement('button');
-    btn.className   = `rank-tab ${g.key === gameKey ? 'active' : ''}`;
-    btn.textContent = g.name;
-    btn.onclick     = ()=> loadRanking(g.key);
-    tabsEl.appendChild(btn);
-  });
+      <div class="waiting-room">
+        <h3>대기 중인 플레이어</h3>
+        <div class="players-list" id="guestWaitingPlayers"></div>
+      </div>
 
-  goTo('sc-ranking');
-  loadRanking(gameKey);
-}
+      <div class="waiting-indicator">
+        <div class="spinner"></div>
+        <p>호스트가 게임을 시작할 때까지 대기 중...</p>
+      </div>
+    </div>
 
-async function loadRanking(gameKey){
-  // 탭 활성화
-  const tabs = document.querySelectorAll('.rank-tab');
-  GAME_LIST.forEach((g, i) => { if(tabs[i]) tabs[i].classList.toggle('active', g.key === gameKey); });
+    <!-- ⑤ 카운트다운 -->
+    <div id="countdownScreen" class="multi-screen hidden" style="text-align:center;padding:20px 0">
+      <div class="countdown-display" id="countdownDisplay">3</div>
+      <p class="countdown-sub" id="countdownSub">게임이 시작됩니다!</p>
+    </div>
 
-  const gameInfo = GAME_LIST.find(g => g.key === gameKey);
-  document.getElementById('ranking-title').textContent = `🏆 ${gameInfo?.name || '랭킹'}`;
+  </div>
+</div>
 
-  const body = document.getElementById('ranking-body');
-  body.innerHTML = '<div class="empty-state"><div class="empty-icon">⏳</div><div>불러오는 중...</div></div>';
+<!-- ── Scripts ───────────────────────────── -->
+<script src="firebase-config.js"></script>
+<script src="game-registry.js"></script>
+<script src="multiplayer.js"></script>
+<script src="lobby.js"></script>
 
-  try {
-    const snap = await db.ref(`rankings/${schoolCode}/${gameKey}`)
-                         .orderByChild('best').limitToLast(50).get();
-
-    if(!snap.exists()){
-      body.innerHTML = '<div class="empty-state"><div class="empty-icon">🏆</div><div>아직 기록이 없습니다. 첫 번째 도전자가 되세요!</div></div>';
-      return;
-    }
-
-    const entries = [];
-    snap.forEach(child => entries.push({ uid:child.key, ...child.val() }));
-    entries.sort((a,b) => b.best - a.best);
-
-    const medals  = ['🥇','🥈','🥉'];
-    const topCls  = ['top1','top2','top3'];
-    body.innerHTML = '';
-
-    entries.forEach((e, i) => {
-      const isMe  = e.uid === myId;
-      const date  = new Date(e.at).toLocaleDateString('ko-KR', {month:'2-digit',day:'2-digit'});
-      const div   = document.createElement('div');
-      div.className = `rank-item ${topCls[i]||''} ${isMe?'mine':''}`;
-      div.style.animationDelay = (i * 40) + 'ms';
-      div.innerHTML = `
-        <div class="rank-no">${medals[i] || (i+1)}</div>
-        <div class="rank-info">
-          <div class="rank-name">${AVATARS[i%AVATARS.length]} ${e.name}${isMe?'<span class="rank-my-badge">나</span>':''}</div>
-          <div class="rank-date">${date} 달성</div>
-        </div>
-        <div class="rank-score">${e.best.toLocaleString()}점</div>`;
-      body.appendChild(div);
-    });
-  } catch(e){
-    console.error('랭킹 로드 오류', e);
-    body.innerHTML = '<div class="empty-state"><div class="empty-icon">⚠️</div><div>불러오기에 실패했습니다.<br>잠시 후 다시 시도해주세요.</div></div>';
-  }
-}
-
-/* ══════════════════════════════════════════
-   오디오
-   ══════════════════════════════════════════ */
-const AC = new (window.AudioContext || window.webkitAudioContext)();
-function snd(type){
-  if(AC.state === 'suspended') AC.resume();
-  const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain();
-  o.connect(g); g.connect(AC.destination);
-  ({
-    correct: ()=>{ o.type='sine';     o.frequency.setValueAtTime(523,t); o.frequency.setValueAtTime(659,t+.1); o.frequency.setValueAtTime(784,t+.2); g.gain.setValueAtTime(.1,t); g.gain.linearRampToValueAtTime(0,t+.4); o.start(t); o.stop(t+.4); },
-    wrong:   ()=>{ o.type='sawtooth'; o.frequency.setValueAtTime(150,t); o.frequency.linearRampToValueAtTime(100,t+.3); g.gain.setValueAtTime(.1,t); g.gain.linearRampToValueAtTime(0,t+.3); o.start(t); o.stop(t+.3); },
-    click:   ()=>{ o.type='triangle'; o.frequency.setValueAtTime(800,t); g.gain.setValueAtTime(.05,t); g.gain.exponentialRampToValueAtTime(.001,t+.05); o.start(t); o.stop(t+.05); },
-    win:     ()=>{ o.type='square';   o.frequency.setValueAtTime(523,t); o.frequency.setValueAtTime(784,t+.1); o.frequency.setValueAtTime(1046,t+.2); g.gain.setValueAtTime(.1,t); g.gain.linearRampToValueAtTime(0,t+.6); o.start(t); o.stop(t+.6); },
-    tick:    ()=>{ o.type='sine';     o.frequency.setValueAtTime(880,t); g.gain.setValueAtTime(.1,t); g.gain.exponentialRampToValueAtTime(.01,t+.1); o.start(t); o.stop(t+.1); },
-  })[type]?.();
-}
-window.KM = { snd };
-
-/* ══════════════════════════════════════════
-   토스트 / 키보드
-   ══════════════════════════════════════════ */
-let _tt;
-function toast(msg){
-  const el = document.getElementById('toast');
-  el.textContent = msg;
-  el.classList.add('show');
-  clearTimeout(_tt);
-  _tt = setTimeout(()=> el.classList.remove('show'), 2800);
-}
-
-document.getElementById('inp-school').addEventListener('keydown', e=>{ if(e.key==='Enter') document.getElementById('inp-name').focus(); });
-document.getElementById('inp-name').addEventListener('keydown',   e=>{ if(e.key==='Enter') doLogin(); });
-
-/* ══════════════════════════════════════════
-   Firebase 재연결 시 presence 재등록
-   ══════════════════════════════════════════ */
-db.ref('.info/connected').on('value', snap=>{
-  if(snap.val() === true && schoolCode && myId && myName){
-    const pref = db.ref(`rooms/${schoolCode}/_presence/${myId}`);
-    pref.set({ name:myName, at:Date.now() });
-    pref.onDisconnect().remove();
-  }
-});
-</script>
 </body>
 </html>
